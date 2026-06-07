@@ -33,21 +33,20 @@ def _job_dir(job_id: str) -> Path:
 
 
 async def _execute_job(job: JobRecord) -> None:
-    async with job_lock:
-        job.status = "running"
+    job.status = "running"
+    job.updated_at = utcnow()
+    try:
+        result = await asyncio.wait_for(
+            run_generation(settings, job.request, _job_dir(job.id)),
+            timeout=settings.job_timeout_seconds,
+        )
+        job.status = "succeeded"
+        job.result = result
         job.updated_at = utcnow()
-        try:
-            result = await asyncio.wait_for(
-                run_generation(settings, job.request, _job_dir(job.id)),
-                timeout=settings.job_timeout_seconds,
-            )
-            job.status = "succeeded"
-            job.result = result
-            job.updated_at = utcnow()
-        except Exception as exc:  # noqa: BLE001
-            job.status = "failed"
-            job.error = f"{type(exc).__name__}: {exc}"
-            job.updated_at = utcnow()
+    except Exception as exc:  # noqa: BLE001
+        job.status = "failed"
+        job.error = f"{type(exc).__name__}: {exc}"
+        job.updated_at = utcnow()
 
 
 @app.get("/health")

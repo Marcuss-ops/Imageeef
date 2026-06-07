@@ -1,5 +1,7 @@
 from __future__ import annotations
+import asyncio
 import json
+import random
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,11 @@ from .actions import _find_editable, _click_by_text, _select_4_images_layout
 from ..config import Settings
 
 async def run_generation(settings: Settings, request: Any, out_dir: Path) -> dict[str, Any]:
+    # Random delay before starting to avoid saturation (1-5 seconds)
+    start_delay = random.uniform(1.0, 5.0)
+    print(f"Starting generation for project {request.project_id} with {start_delay:.2f}s jitter...")
+    await asyncio.sleep(start_delay)
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     url = settings.project_url_template.format(project_id=request.project_id)
