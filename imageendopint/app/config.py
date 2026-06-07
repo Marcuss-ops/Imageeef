@@ -44,6 +44,8 @@ class Settings:
     max_result_wait_seconds: int
     debug_screenshots: bool
     project_id_pool: list[str]
+    max_concurrent_jobs: int
+    job_retention_hours: int
 
 
 def load_settings() -> Settings:
@@ -92,4 +94,6 @@ def load_settings() -> Settings:
         max_result_wait_seconds=int(os.getenv("MAX_RESULT_WAIT_SECONDS", "300")),
         debug_screenshots=_env_bool("DEBUG_SCREENSHOTS", False),
         project_id_pool=project_id_pool,
+        max_concurrent_jobs=int(os.getenv("MAX_CONCURRENT_JOBS", "4")),
+        job_retention_hours=int(os.getenv("JOB_RETENTION_HOURS", "24")),
     )
