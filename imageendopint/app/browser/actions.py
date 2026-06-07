@@ -1,7 +1,10 @@
 from __future__ import annotations
+import logging
 import re
 from typing import Any
 from playwright.async_api import Page
+
+logger = logging.getLogger("image_endpoint.worker")
 
 async def _find_editable(page: Page, selector: str | None) -> Any | None:
     if selector:
@@ -68,41 +71,49 @@ async def _click_by_text(page: Page, text: str) -> bool:
 async def _select_4_images_layout(page: Page) -> bool:
     """
     Specifically for Flow: 
-    1. Look for the 'Nano Banana' pill button at the bottom
+    1. Look for the 'Nano Banana' pill button at the bottom (prompt area)
     2. Click it to open the settings popup
     3. Look for the 'x4' button specifically and click it
     """
     try:
         # Step 1: Click the agent/settings pill button
-        # In the screenshot it has text like "Nano Banana 2 x2"
+        # We target buttons specifically in the bottom prompt container if possible,
+        # or filter by the unique structure of that pill.
+        # The pill usually has the agent name and layout info.
+        
+        # We search for buttons that are NOT inside the media gallery if possible
+        # but a safer way is to look for the one with 'x2' or 'x1' or 'x4' in the same text
         agent_btn = page.locator("button").filter(has_text=re.compile(r"Nano Banana", re.I))
         
-        if await agent_btn.count() > 0:
-            print("Clicking Nano Banana settings pill...")
-            await agent_btn.first.click()
+        # If multiple found, the one in the bottom bar is usually later in the DOM 
+        # or has specific classes. Let's try to be specific about the button role.
+        count = await agent_btn.count()
+        if count > 0:
+            # We take the LAST one because images generated with that agent 
+            # might have the text, but the control pill is usually at the bottom.
+            target = agent_btn.last 
+            
+            logger.info("clicking layout settings pill (found %d candidates)", count)
+            await target.click()
             await page.wait_for_timeout(1500)
             
             # Step 2: Click the 'x4' button in the popup
-            # We look for a button that has EXACTLY 'x4' as text to avoid confusion
-            # Or use a more specific selector if available
             layout_x4 = page.locator("button").filter(has_text=re.compile(r"^x4$", re.I))
             
             if await layout_x4.count() > 0:
-                # Make sure we click the one that is visible (the one in the popup)
                 for i in range(await layout_x4.count()):
                     btn = layout_x4.nth(i)
                     if await btn.is_visible():
-                        print("Found 'x4' button in popup, clicking...")
+                        logger.info("selecting x4 layout")
                         await btn.click()
                         await page.wait_for_timeout(1000)
                         return True
             else:
-                # Fallback: try just '4' if 'x4' is not found
                 layout_4 = page.locator("button").filter(has_text=re.compile(r"^4$", re.I))
                 if await layout_4.count() > 0:
                      await layout_4.first.click()
                      return True
                      
     except Exception as e:
-        print(f"Error in _select_4_images_layout: {e}")
+        logger.warning("layout selection failed: %s", e)
     return False
