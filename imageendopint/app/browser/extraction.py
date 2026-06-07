@@ -59,14 +59,26 @@ def _guess_extension(content_type: str | None, url: str) -> str:
 
 async def _download_images(context: BrowserContext, urls: list[str], out_dir: Path) -> list[str]:
     saved_paths: list[str] = []
-    for index, url in enumerate(_unique_preserve_order(urls), start=1):
+    # Filter out obvious non-generated assets like UI icons or noise patterns
+    filtered_urls = [
+        u for u in _unique_preserve_order(urls)
+        if "/fx/images/" not in u and not u.endswith("/perlin.png")
+    ]
+    
+    for index, url in enumerate(filtered_urls, start=1):
         try:
             response = await context.request.get(url)
             if not response.ok:
                 continue
+            
+            # Additional check: ignore very small files (icons are usually < 10KB)
+            body = await response.body()
+            if len(body) < 15000: # 15KB threshold
+                continue
+
             ext = _guess_extension(response.headers.get("content-type"), url)
             path = out_dir / f"generated-{index:02d}{ext}"
-            path.write_bytes(await response.body())
+            path.write_bytes(body)
             saved_paths.append(str(path))
         except Exception:
             continue
