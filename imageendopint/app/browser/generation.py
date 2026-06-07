@@ -125,21 +125,43 @@ async def run_generation(settings: Settings, request: Any, out_dir: Path) -> dic
             max_wait = settings.max_result_wait_seconds
             poll_interval = float(settings.result_poll_seconds)
             new_sources: list[str] = []
+            took_40s_screenshot = False
             
-            for _ in range(int(max_wait / poll_interval)):
+            logger.info("starting polling loop for project_id=%s", request.project_id)
+            for i in range(int(max_wait / poll_interval)):
+                elapsed = i * poll_interval
+                
+                # Take requested screenshot after 40 seconds
+                if not took_40s_screenshot and elapsed >= 40:
+                    if settings.debug_screenshots:
+                        snap_path = out_dir / "05-after-submit-40s.png"
+                        await page.screenshot(path=str(snap_path), full_page=True)
+                        artifacts.append({"kind": "screenshot_40s", "name": snap_path.name})
+                        logger.info("captured 40s mid-polling screenshot")
+                    took_40s_screenshot = True
+
                 current_sources = _unique_preserve_order(await _extract_image_sources(page))
                 new_sources = [s for s in current_sources if s not in existing_sources]
                 
                 if len(new_sources) >= 4:
+                    logger.info("found %d images after %d attempts", len(new_sources), i+1)
                     break
+                
+                if i % 10 == 0:
+                    logger.info("polling... (attempt %d, found %d images)", i+1, len(new_sources))
+                    
                 await page.wait_for_timeout(int(poll_interval * 1000))
+
+            logger.info("finished polling, total new_sources=%d", len(new_sources))
+            
+            # Download new images
+            logger.info("starting download of %d images", len(new_sources))
+            downloaded_paths = await _download_images(context, new_sources, out_dir)
+            logger.info("downloaded %d images successfully", len(downloaded_paths))
 
             screenshot_path = out_dir / "page.png"
             html_path = out_dir / "page.html"
             meta_path = out_dir / "result.json"
-            
-            # Download new images
-            downloaded_paths = await _download_images(context, new_sources, out_dir)
 
             if settings.debug_screenshots:
                 await page.screenshot(path=str(screenshot_path), full_page=True)
@@ -171,7 +193,7 @@ async def run_generation(settings: Settings, request: Any, out_dir: Path) -> dic
             logger.info(
                 "generation finished project_id=%s images=%d",
                 request.project_id,
-                len(final_images),
+                len(final_filenames),
             )
             return meta
         finally:
