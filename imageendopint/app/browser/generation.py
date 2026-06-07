@@ -122,12 +122,12 @@ async def run_generation(settings: Settings, request: Any, out_dir: Path) -> dic
             existing_sources = _unique_preserve_order(await _extract_image_sources(page))
 
             # Poll for results
-            max_wait = 80  # Force 80 seconds maximum wait
-            poll_interval = 5.0 # 5 seconds as requested
+            max_wait = 120  # Increased to 120s for slower generations
+            poll_interval = 5.0
             new_sources: list[str] = []
             took_40s_screenshot = False
             
-            logger.info("starting 5s-interval polling loop for project_id=%s (max 80s)", request.project_id)
+            logger.info("starting 5s polling loop (max 120s)")
             start_poll_time = asyncio.get_event_loop().time()
             
             for i in range(int(max_wait / poll_interval)):
@@ -139,20 +139,22 @@ async def run_generation(settings: Settings, request: Any, out_dir: Path) -> dic
                         snap_path = out_dir / "05-after-submit-40s.png"
                         await page.screenshot(path=str(snap_path), full_page=True)
                         artifacts.append({"kind": "screenshot_40s", "name": snap_path.name})
-                        logger.info("captured 40s mid-polling screenshot")
                     took_40s_screenshot = True
 
-                # Extract and compare
                 current_sources = _unique_preserve_order(await _extract_image_sources(page))
                 new_sources = [s for s in current_sources if s not in existing_sources]
                 
-                # We expect 4 images, but we'll accept what we find if we hit the limit
                 if len(new_sources) >= 4:
                     logger.info("found %d images after %.1fs", len(new_sources), elapsed)
                     break
                 
-                logger.info("polling... (elapsed %.1fs, found %d images)", elapsed, len(new_sources))
                 await page.wait_for_timeout(int(poll_interval * 1000))
+
+            # Final check just in case
+            if not new_sources:
+                logger.info("polling timeout, performing final DOM extraction attempt")
+                current_sources = _unique_preserve_order(await _extract_image_sources(page))
+                new_sources = [s for s in current_sources if s not in existing_sources]
 
             logger.info("finished polling, final new_sources count=%d", len(new_sources))
             
