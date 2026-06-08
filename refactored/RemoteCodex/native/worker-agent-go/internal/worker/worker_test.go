@@ -17,7 +17,6 @@ func TestNewWorker(t *testing.T) {
 		WorkerID:   "test-worker-001",
 		WorkerName: "test-worker",
 		WorkDir:    "/tmp/velox",
-		VenvPath:   "/tmp/velox/.venv",
 		LogLevel:   "debug",
 	}
 

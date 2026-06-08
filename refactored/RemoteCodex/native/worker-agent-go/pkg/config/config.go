@@ -28,7 +28,6 @@ type WorkerConfig struct {
 	WorkerID   string  `json:"worker_id"`   // Unique worker identifier (e.g., worker-001 or auto-generated)
 	WorkerName string  `json:"worker_name"` // Human-readable worker name (e.g., video-worker-1)
 	WorkDir    string  `json:"work_dir"`    // Base directory for velox installations (e.g., /opt/velox)
-	VenvPath   string  `json:"venv_path"`   // Path to Python virtualenv (e.g., /opt/velox/.venv)
 	LogLevel   string  `json:"log_level"`   // Log level: debug, info, warn, error
 	APIMode    APIMode `json:"api_mode"`    // API mode: legacy_v1 or new_api (default: new_api)
 
@@ -117,7 +116,6 @@ func DefaultConfig(workDir string) *WorkerConfig {
 		WorkerID:   GenerateWorkerID(),
 		WorkerName: "velox-worker",
 		WorkDir:    workDir,
-		VenvPath:   filepath.Join(workDir, ".venv"),
 		LogLevel:   "info",
 		APIMode:    APIModeNewAPI, // Default to new API
 

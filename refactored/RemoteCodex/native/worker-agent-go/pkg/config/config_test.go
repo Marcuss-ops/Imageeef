@@ -18,7 +18,6 @@ func TestLoadConfig(t *testing.T) {
 		"worker_id": "test-worker-001",
 		"worker_name": "Test Worker",
 		"work_dir": "/opt/velox",
-		"venv_path": "/opt/velox/.venv",
 		"log_level": "debug"
 	}`
 
@@ -81,7 +80,6 @@ func TestSaveConfig(t *testing.T) {
 		WorkerID:   "test-worker-001",
 		WorkerName: "Test Worker",
 		WorkDir:    "/opt/velox",
-		VenvPath:   "/opt/velox/.venv",
 		LogLevel:   "info",
 	}
 
@@ -186,10 +184,6 @@ func TestDefaultConfig(t *testing.T) {
 
 	if cfg.LogLevel != "info" {
 		t.Errorf("Expected default log_level info, got %s", cfg.LogLevel)
-	}
-
-	if cfg.VenvPath != "/opt/velox/.venv" {
-		t.Errorf("Expected venv_path /opt/velox/.venv, got %s", cfg.VenvPath)
 	}
 
 	if cfg.EnableCommandPolling {
