@@ -14,7 +14,7 @@
 
 ---
 - name: Write env file
-  copy:
+  ansible.builtin.copy:
     dest: /etc/velox-worker.env
     mode: "0600"
     content: |
@@ -27,19 +27,19 @@
       VELOX_REMOTION_PROJECT_PATH={{ velox_dir }}/current/my-video
 
 - name: Detect current bundle layout (legacy refactored vs flat)
-  stat:
+  ansible.builtin.stat:
     path: "{{ velox_dir }}/current/refactored/RemoteCodex/Dockerfile.worker"
   register: legacy_layout_dockerfile
 
 - name: Set bundle layout paths
-  set_fact:
+  ansible.builtin.set_fact:
     velox_current_root: >-
       {{ (velox_dir + '/current/refactored') if (legacy_layout_dockerfile.stat.exists | default(false)) else (velox_dir + '/current') }}
     velox_assets_cache_host_path: >-
       {{ (velox_dir + '/current/refactored/RemoteCodex/assets_cache') if (legacy_layout_dockerfile.stat.exists | default(false)) else (velox_dir + '/current/RemoteCodex/assets_cache') }}
 
 - name: Ensure velox-worker Docker image (reuse installer build when available)
-  shell: |
+  ansible.builtin.shell: |
     set -e
     DOCKERFILE="{{ velox_current_root }}/RemoteCodex/Dockerfile.worker"
     CONTEXT="{{ velox_current_root }}/RemoteCodex"
@@ -67,11 +67,11 @@
   failed_when: worker_image_build.rc != 0
 
 - name: Log Docker image preparation result
-  debug:
+  ansible.builtin.debug:
     msg: "{{ worker_image_build.stdout | default('no output') }}"
 
 - name: Build velox-worker-console Docker image
-  shell: |
+  ansible.builtin.shell: |
     set -e
     DOCKERFILE="{{ velox_current_root }}/RemoteCodex/worker-console/Dockerfile.console"
     CONTEXT="{{ velox_current_root }}/RemoteCodex/worker-console"
@@ -99,17 +99,17 @@
   failed_when: console_image_build.rc != 0
 
 - name: Log worker-console image preparation result
-  debug:
+  ansible.builtin.debug:
     msg: "{{ console_image_build.stdout | default('no output') }}"
 
 - name: Ensure velox console bin directory
-  file:
+  ansible.builtin.  ansible.builtin.file:
     path: /opt/velox/bin
     state: directory
     mode: "0755"
 
 - name: Install worker-console opener script
-  copy:
+  ansible.builtin.copy:
     dest: /opt/velox/bin/velox-worker-console-open.sh
     mode: "0755"
     content: |
@@ -132,7 +132,7 @@
       fi
 
 - name: Install worker-console systemd service (Docker)
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-worker-console.service
     mode: "0644"
     content: |
@@ -160,13 +160,13 @@
       WantedBy=multi-user.target
 
 - name: Ensure XDG autostart directory exists
-  file:
+  ansible.builtin.file:
     path: /etc/xdg/autostart
     state: directory
     mode: "0755"
 
 - name: Install worker-console desktop autostart
-  copy:
+  ansible.builtin.copy:
     dest: /etc/xdg/autostart/velox-worker-console.desktop
     mode: "0644"
     content: |
@@ -180,20 +180,20 @@
       NoDisplay=false
 
 - name: Stop worker service before rewriting unit
-  systemd:
+  ansible.builtin.systemd:
     name: velox-worker-{{ inventory_hostname }}
     state: stopped
   failed_when: false
 
 - name: Preserve host-specific canonical override directory
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service.d
     state: directory
     mode: "0755"
 
 # ── DOCKER GO WORKER SERVICE (Single Source of Truth) ──────────
 - name: Create systemd service
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service
     mode: "0644"
     content: |
@@ -223,39 +223,39 @@
       WantedBy=multi-user.target
 
 - name: Reload systemd
-  systemd:
-    daemon_reload: yes
+  ansible.builtin.systemd:
+    daemon_reload: true
 
 - name: Reset failed state for worker service
-  shell: systemctl reset-failed "velox-worker-{{ inventory_hostname }}" || true
+  ansible.builtin.shell: systemctl reset-failed "velox-worker-{{ inventory_hostname }}" || true
   args:
     executable: /bin/bash
   changed_when: false
 
 - name: Enable and start worker
-  systemd:
+  ansible.builtin.systemd:
     name: velox-worker-{{ inventory_hostname }}
-    enabled: yes
+    enabled: true
     state: restarted
 
 - name: Enable and start worker-console service
-  systemd:
+  ansible.builtin.systemd:
     name: velox-worker-console
-    enabled: yes
+    enabled: true
     state: restarted
 
 - name: Install showlog wrapper on controller (master)
-  copy:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../../../utils/admin/showlog"
     dest: /usr/local/bin/showlog
     mode: '0755'
   delegate_to: localhost
-  become: yes
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
   when: install_showlog_wrapper | default(false) | bool
 
 - name: Verifica stato servizio worker
-  shell: |
+  ansible.builtin.shell: |
     set +e
     systemctl is-active "velox-worker-{{ inventory_hostname }}" 2>/dev/null || true
   register: worker_service_active
@@ -264,23 +264,23 @@
 
 # ── EXECSTART VALIDATION (UNIT_POLICY.md compliance) ───────────
 - name: Read ExecStart from canonical worker unit
-  command: systemctl show "velox-worker-{{ inventory_hostname }}" --property=ExecStart --value
+  ansible.builtin.command: systemctl show "velox-worker-{{ inventory_hostname }}" --property=ExecStart --value
   register: execstart_raw
   changed_when: false
   failed_when: false
 
 - name: Normalize ExecStart for validation
-  set_fact:
+  ansible.builtin.set_fact:
     execstart_value: "{{ execstart_raw.stdout | default('') | trim }}"
 
 - name: Compute ExecStart validation code
-  set_fact:
+  ansible.builtin.set_fact:
     execstart_validation_code: >-
       {% set e = execstart_value | lower %}
       {% if e | length == 0 %}EMPTY_EXECSTART{% elif 'job_worker.py' in e or 'worker_bootstrap.py' in e %}LEGACY_PYTHON{% elif 'velox-worker-agent' in e or 'docker run' in e %}PASS{% else %}UNKNOWN_FORMAT{% endif %}
 
 - name: Build ExecStart validation object
-  set_fact:
+  ansible.builtin.set_fact:
     execstart_validation:
       rc: "{% if execstart_validation_code == 'PASS' %}0{% elif execstart_validation_code == 'LEGACY_PYTHON' %}1{% elif execstart_validation_code == 'EMPTY_EXECSTART' %}2{% else %}3{% endif %}"
       stdout: "{{ execstart_value }}"
@@ -290,28 +290,28 @@
   changed_when: false
 
 - name: Log ExecStart validation result
-  debug:
+  ansible.builtin.debug:
     msg: |
       ExecStart Validation: {{ execstart_validation.stdout_lines | join('\n') }}
       Validation Code: {{ execstart_validation_code }}
 
 - name: Fail if legacy Python ExecStart detected
-  fail:
+  ansible.builtin.fail:
     msg: |
       CRITICAL: Legacy Python worker detected after systemd setup!
       Unit: velox-worker-{{ inventory_hostname }}
       {{ execstart_validation.stdout }}
-      
+
       This should not happen - the unit file was just created with Docker/Go ExecStart.
       Possible causes:
       1. Override file modified ExecStart
       2. Unit file was replaced after creation
-      
+
       Action: Check /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service.d/ for overrides
   when: execstart_validation_code == 'LEGACY_PYTHON'
 
 - name: Install velox-worker watchdog (auto-restart if service stopped)
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-worker-watchdog.service
     mode: "0644"
     content: |
@@ -366,7 +366,7 @@
       SyslogIdentifier=velox-worker-watchdog
 
 - name: Install velox-worker watchdog timer (every 5 minutes)
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-worker-watchdog.timer
     mode: "0644"
     content: |
@@ -383,15 +383,15 @@
       WantedBy=timers.target
 
 - name: Enable watchdog timer
-  systemd:
+  ansible.builtin.systemd:
     name: velox-worker-watchdog.timer
-    enabled: yes
+    enabled: true
     state: started
-    daemon_reload: yes
+    daemon_reload: true
 
 # ── 12h Auto-Update: OS + Bundle + Restart ────────────────────
 - name: Install velox-auto-update service (OS upgrade + bundle refresh)
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-auto-update.service
     mode: "0644"
     content: |
@@ -424,7 +424,7 @@
       SyslogIdentifier=velox-auto-update
 
 - name: Install velox-auto-update timer (ogni 12 ore)
-  copy:
+  ansible.builtin.copy:
     dest: /etc/systemd/system/velox-auto-update.timer
     mode: "0644"
     content: |
@@ -446,8 +446,8 @@
       WantedBy=timers.target
 
 - name: Enable e avvia auto-update timer
-  systemd:
+  ansible.builtin.systemd:
     name: velox-auto-update.timer
-    enabled: yes
+    enabled: true
     state: started
-    daemon_reload: yes
+    daemon_reload: true
