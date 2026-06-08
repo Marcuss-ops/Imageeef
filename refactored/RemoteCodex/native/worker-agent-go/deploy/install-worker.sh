@@ -140,8 +140,6 @@ run_cmd mkdir -p "$WORK_DIR/logs"
 run_cmd mkdir -p "$WORK_DIR/versions"
 run_cmd mkdir -p "$WORK_DIR/backups"
 
-
-
 # Step 4: Install binaries
 echo ""
 echo -e "${BLUE}Step 4: Installing binaries...${NC}"
@@ -178,7 +176,7 @@ fi
 
 # Step 6: Install systemd service
 echo ""
-echo -e "${BLUE}Step 7: Installing systemd service...${NC}"
+echo -e "${BLUE}Step 6: Installing systemd service...${NC}"
 SERVICE_FILE="/etc/systemd/system/velox-worker.service"
 
 # Generate service file with proper values
