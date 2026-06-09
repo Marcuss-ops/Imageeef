@@ -156,19 +156,8 @@
       SHA256 mismatch: manifest={{ bundle_manifest_resp.json.sha256 | default('n/a') }}
       local={{ local_bundle_sha.stdout | default('n/a') }}.
 
-- name: Pre-check | Verifica download bundle (HEAD)
-  uri:
-    url: "{{ master_url }}/api/worker/bundle?platform=linux&arch=x86_64"
-    method: HEAD
-    return_content: no
-    status_code: [200, 405]
-    timeout: 15
-  register: bundle_head
-  delegate_to: localhost
-  become: no
-
 - name: Pre-check | Verifica download bundle (Range fallback)
-  when: bundle_head.status | int != 200
+  when: "{{ bundle_manifest_resp is defined and bundle_manifest_resp.status | default(404) | int != 200 }}"
   uri:
     url: "{{ master_url }}/api/worker/bundle?platform=linux&arch=x86_64"
     method: GET

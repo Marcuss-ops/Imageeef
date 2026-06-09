@@ -76,7 +76,9 @@ func Heartbeat(reg *workersreg.Registry) gin.HandlerFunc {
 			CurrentJob string                 `json:"current_job"`
 			Extra      map[string]interface{} `json:"extra"`
 		}
-		_ = c.ShouldBindJSON(&body)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			log.Printf("workers/heartbeat: failed to bind JSON: %v", err)
+		}
 		if body.WorkerID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "missing worker_id"})
 			return
@@ -84,7 +86,9 @@ func Heartbeat(reg *workersreg.Registry) gin.HandlerFunc {
 		if body.Status == "" {
 			body.Status = "online"
 		}
-		_ = reg.Heartbeat(c.Request.Context(), body.WorkerID, body.WorkerName, body.Status, body.CurrentJob, body.Extra)
+		if err := reg.Heartbeat(c.Request.Context(), body.WorkerID, body.WorkerName, body.Status, body.CurrentJob, body.Extra); err != nil {
+			log.Printf("workers/heartbeat: heartbeat failed for %s: %v", body.WorkerID, err)
+		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }

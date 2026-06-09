@@ -27,21 +27,6 @@ func GetCutoverMetrics() CutoverMetrics {
 	}
 }
 
-// CutoverMetricsHandler returns a Gin handler that exposes metrics
-func CutoverMetricsHandler() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		metrics := GetCutoverMetrics()
-		c.JSON(http.StatusOK, gin.H{
-			"go_only_mode": true,
-			"metrics": gin.H{
-				"go_handled_requests": metrics.GoHandledRequests,
-				"blocked_requests":    metrics.BlockedRequests,
-			},
-			"note": "Python backends removed - system runs in permanent Go-only mode",
-		})
-	}
-}
-
 // NoRouteHandler handles all unmatched routes.
 // Python backends have been completely removed.
 // All /api/* requests are handled by Go or return 404.

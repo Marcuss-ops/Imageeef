@@ -24,6 +24,8 @@ DataServer/data/ansible/playbooks/inventory.ini
 DataServer/completed_videos/
 
 # ── Build artifacts ──────────────────────────────────────────
+*.tsbuildinfo
+*.tsbuildinfo.*
 DataServer/bin/
 DataServer/server
 DataServer/velox-server

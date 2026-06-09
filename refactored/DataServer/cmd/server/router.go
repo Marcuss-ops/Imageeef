@@ -68,7 +68,6 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 	r.Use(corsMiddleware())
 	r.Use(requestIDMiddleware())
 	r.Use(accessLogMiddleware())
-	r.Use(gzipMiddleware())
 	r.Use(addGzipHeaders())
 
 	// Fix for wrong asset paths in bundled JS: redirect /creator_studio_app/dist/assets/ to /assets/
@@ -97,7 +96,6 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 		c.Data(200, "image/svg+xml; charset=utf-8", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f97316"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0f172a"/><circle cx="32" cy="32" r="18" fill="url(#g)"/><path d="M25 27h14l-7 14z" fill="#fff"/></svg>`))
 	})
 
-	registerDiagnosticsRoutes(r, cfg, deps)
 	registerHealthAndExplorerRoutes(r)
 	registerCutoverMetricsRoute(r)
 	registerAPIV1Routes(r, cfg, deps)
@@ -111,11 +109,8 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 	initCachesAndManagers(r, cfg, deps)
 	serveSPAHandler := registerStaticAndSPA(r, cfg)
 
-	// Dark Editor API + proxy.
-	registerDarkEditor(r, cfg, deps)
-
 	landing := proxy.LandingPage(cfg)
-	r.NoRoute(proxy.NoRouteHandler(serveSPAHandler, landing, depsDarkEditorProxyHandler(cfg, deps.paths.dataDir, r)))
+	r.NoRoute(proxy.NoRouteHandler(serveSPAHandler, landing, nil))
 
 	return r
 }

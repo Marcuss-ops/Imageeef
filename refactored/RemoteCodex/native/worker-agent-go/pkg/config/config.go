@@ -37,14 +37,6 @@ type WorkerConfig struct {
 	CPUWorkerPool  int `json:"cpu_worker_pool"` // CPU worker pool size (default: 8)
 	PrometheusPort int `json:"prometheus_port"` // Prometheus metrics port (default: 9090)
 
-	// Phase 2: Render plan validation
-	// DEPRECATED: This flag will be removed in a future release.
-	// All jobs MUST include render_plan_version in the payload.
-	// Set to false to enforce strict validation.
-	AllowLegacyRenderPlanVersionFallback bool `json:"allow_legacy_render_plan_version_fallback"` // Allow fallback from version field if render_plan_version is missing (default: false - legacy fallback disabled)
-
-	// Phase 3: Command polling
-	EnableCommandPolling bool `json:"enable_command_polling"` // Poll master for ad-hoc commands (default: false)
 }
 
 // ErrInvalidConfig is returned when configuration validation fails.
@@ -121,7 +113,6 @@ func DefaultConfig(workDir string) *WorkerConfig {
 		GodCPUWorkflowEnabled: false, // Disabled by default, enable via config
 		MaxActiveJobs:         1,     // 1 main job per VPS
 		CPUWorkerPool:         8,     // 8-core concurrency
-		EnableCommandPolling:  false, // Disabled by default to avoid legacy command polling noise
 	}
 }
 

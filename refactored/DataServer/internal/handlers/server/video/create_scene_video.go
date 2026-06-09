@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -53,7 +54,9 @@ func CreateFromScenes(cfg *config.Config, q *queue.FileQueue) gin.HandlerFunc {
 			}
 			defer resp.Body.Close()
 			var proxyRes map[string]interface{}
-			_ = json.NewDecoder(resp.Body).Decode(&proxyRes)
+			if err := json.NewDecoder(resp.Body).Decode(&proxyRes); err != nil {
+				log.Printf("create_scene_video: failed to decode proxy response: %v", err)
+			}
 			if proxyRes == nil {
 				proxyRes = make(map[string]interface{})
 			}

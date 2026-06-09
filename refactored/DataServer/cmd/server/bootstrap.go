@@ -45,7 +45,9 @@ type serverDeps struct {
 }
 
 func configureTrustedProxies(r *gin.Engine) {
-	_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	if err := r.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		log.Printf("bootstrap: SetTrustedProxies failed: %v", err)
+	}
 }
 
 func adminAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -96,25 +98,9 @@ func accessLogMiddleware() gin.HandlerFunc {
 	}
 }
 
-func gzipMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Next()
-	}
-}
-
 func addGzipHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Vary", "Accept-Encoding")
-		c.Next()
-	}
-}
-
-func registerDiagnosticsRoutes(_ *gin.Engine, _ *config.Config, _ *serverDeps) {}
-
-func registerDarkEditor(_ *gin.Engine, _ *config.Config, _ *serverDeps) {}
-
-func depsDarkEditorProxyHandler(_ *config.Config, _ string, _ *gin.Engine) gin.HandlerFunc {
-	return func(c *gin.Context) {
 		c.Next()
 	}
 }

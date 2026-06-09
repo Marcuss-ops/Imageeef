@@ -191,10 +191,7 @@ func (w *Worker) pollJob(ctx context.Context) (*api.Job, error) {
 		})
 
 		// Phase 2: Validate render plan with centralized entrypoint
-		opts := &renderplan.ValidateRenderPlanOptions{
-			AllowLegacyVersionFallback: w.config.AllowLegacyRenderPlanVersionFallback,
-		}
-		if err := renderplan.ValidateRenderPlan(rp, opts); err != nil {
+		if err := renderplan.ValidateRenderPlan(rp, nil); err != nil {
 			w.logger.Error("[RENDERPLAN] Job validation failed: %v", err)
 			// Log error code if it's a PlanError
 			if planErrs, ok := err.(renderplan.PlanErrors); ok {
@@ -204,15 +201,6 @@ func (w *Worker) pollJob(ctx context.Context) (*api.Job, error) {
 			}
 			telemetry.GetPrometheusMetrics().RecordIdempotencyConflict("validation_failed")
 			return nil, fmt.Errorf("job validation failed: %w", err)
-		}
-
-		// Phase 2: Record fallback usage if legacy version fallback was used
-		if w.config.AllowLegacyRenderPlanVersionFallback && rp.Version == renderplan.RenderPlanVersion {
-			// Check if the original payload had render_plan_version
-			if originalVersion, ok := job.Parameters["render_plan_version"].(string); !ok || originalVersion == "" {
-				w.logger.Warn("[RENDERPLAN] Legacy fallback used for job %s - render_plan_version was missing", job.JobID)
-				telemetry.GetPrometheusMetrics().RecordFallback("missing_render_plan_version")
-			}
 		}
 
 		// Apply defaults after validation

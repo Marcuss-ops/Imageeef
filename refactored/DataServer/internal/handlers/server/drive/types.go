@@ -34,17 +34,11 @@ type MasterFoldersData struct {
 
 // MasterFolderInfo represents a master folder entry
 type MasterFolderInfo struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	URL             string            `json:"url"`
-	SubfoldersCount int               `json:"subfolders_count"`
-	Subfolders      []MasterSubfolder `json:"subfolders"`
-}
-
-// MasterSubfolder represents a subfolder in master
-type MasterSubfolder struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	URL             string        `json:"url"`
+	SubfoldersCount int           `json:"subfolders_count"`
+	Subfolders      []interface{} `json:"subfolders"`
 }
 
 // driveLinksCache holds cached data

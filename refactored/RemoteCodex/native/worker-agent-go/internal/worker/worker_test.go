@@ -34,9 +34,6 @@ func TestNewWorker(t *testing.T) {
 		t.Error("Expected worker to not be stopped initially")
 	}
 
-	if w.config.EnableCommandPolling {
-		t.Error("Expected command polling to be disabled by default")
-	}
 }
 
 // TestStopIdempotent tests that calling Stop multiple times doesn't panic.
@@ -266,30 +263,3 @@ func TestStopChanClosedOnce(t *testing.T) {
 	}()
 }
 
-// BenchmarkStatusTransition benchmarks status transitions.
-func BenchmarkStatusTransition(b *testing.B) {
-	cfg := config.DefaultConfig("/tmp/velox")
-	cfg.WorkerID = "bench-worker"
-
-	w := New(cfg, "test-version")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		w.setStatus(StatusBusy)
-		w.setStatus(StatusIdle)
-	}
-}
-
-// BenchmarkConcurrentStatusRead benchmarks concurrent status reads.
-func BenchmarkConcurrentStatusRead(b *testing.B) {
-	cfg := config.DefaultConfig("/tmp/velox")
-	cfg.WorkerID = "bench-worker"
-
-	w := New(cfg, "test-version")
-
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			_ = w.Status()
-		}
-	})
-}

@@ -16,6 +16,7 @@ import (
 	"velox-server/internal/config"
 	"velox-server/internal/integrations/drive"
 	"velox-server/internal/queue"
+	jobsservice "velox-server/internal/services/jobs"
 )
 
 type driveLinkRow struct {
@@ -26,80 +27,7 @@ type driveLinkRow struct {
 	Language string `json:"language" yaml:"language"`
 }
 
-func extractWorkerLogEntries(output map[string]interface{}, workerID string) []queue.JobLogEntry {
-	if len(output) == 0 {
-		return nil
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	var lines []string
 
-	candidates := []string{"logs", "progress_logs", "processing_logs", "events", "validation_details"}
-	for _, key := range candidates {
-		v, ok := output[key]
-		if !ok || v == nil {
-			continue
-		}
-		switch vv := v.(type) {
-		case []interface{}:
-			for _, it := range vv {
-				if s, ok := it.(string); ok && strings.TrimSpace(s) != "" {
-					lines = append(lines, strings.TrimSpace(s))
-				}
-			}
-		case []string:
-			for _, s := range vv {
-				if strings.TrimSpace(s) != "" {
-					lines = append(lines, strings.TrimSpace(s))
-				}
-			}
-		}
-	}
-	// Some runtimes return full text in a single string field.
-	for _, key := range []string{"status_log"} {
-		v, ok := output[key]
-		if !ok || v == nil {
-			continue
-		}
-		if s, ok := v.(string); ok {
-			for _, part := range strings.Split(s, "\n") {
-				part = strings.TrimSpace(part)
-				if part != "" {
-					lines = append(lines, part)
-				}
-			}
-		}
-	}
-
-	if len(lines) == 0 {
-		return nil
-	}
-
-	entries := make([]queue.JobLogEntry, 0, len(lines))
-	for _, line := range lines {
-		entries = append(entries, queue.JobLogEntry{
-			Timestamp: now,
-			Time:      now,
-			Message:   line,
-			WorkerID:  workerID,
-		})
-	}
-	return entries
-}
-
-func extractOutputVideoPath(output map[string]interface{}) string {
-	if len(output) == 0 {
-		return ""
-	}
-	for _, k := range []string{"master_video_path", "output_path", "result_path", "video_path"} {
-		if s, ok := output[k].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
-	if nested, ok := output["result"].(map[string]interface{}); ok {
-		return extractOutputVideoPath(nested)
-	}
-	return ""
-}
 
 func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 	if api == nil || api.fileQ == nil || api.cfg == nil {
@@ -125,12 +53,14 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 
 	videoPath := resolveVideoPath(api.cfg.VideosDir, jobID, job)
 	if videoPath == "" {
-		_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+		if err := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 			"last_drive_upload_result": map[string]interface{}{
 				"success": false,
 				"error":   "fallback drive skipped: master video file not found",
 			},
-		})
+		}); err != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, err)
+		}
 		return
 	}
 
@@ -147,12 +77,14 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 
 	token, err := resolveWorkingDriveToken(ctx, api.cfg, service)
 	if err != nil {
-		_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+		if updErr := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 			"last_drive_upload_result": map[string]interface{}{
 				"success": false,
 				"error":   fmt.Sprintf("fallback drive failed: %v", err),
 			},
-		})
+		}); updErr != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, updErr)
+		}
 		return
 	}
 	service.SetToken(token)
@@ -161,12 +93,14 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 	projectName := resolveProjectName(job, videoPath)
 	targetParentID, resolvedGroup, resolveErr := resolveVideoYoutubeGroupTarget(api.cfg.DataDir, groupName)
 	if resolveErr != nil {
-		_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+		if updErr := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 			"last_drive_upload_result": map[string]interface{}{
 				"success": false,
 				"error":   fmt.Sprintf("drive group mapping required: %v", resolveErr),
 			},
-		})
+		}); updErr != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, updErr)
+		}
 		return
 	}
 
@@ -178,12 +112,14 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 		if err != nil {
 			msg = err.Error()
 		}
-		_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+		if updErr := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 			"last_drive_upload_result": map[string]interface{}{
 				"success": false,
 				"error":   msg,
 			},
-		})
+		}); updErr != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, updErr)
+		}
 		return
 	}
 
@@ -194,15 +130,16 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 			msg := "failed to create language variant folder in project folder"
 			if vErr != nil {
 				msg = vErr.Error()
-			}
-			_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
-				"last_drive_upload_result": map[string]interface{}{
-					"success": false,
-					"error":   msg,
-				},
-			})
-			return
+			}		if updErr := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+			"last_drive_upload_result": map[string]interface{}{
+				"success": false,
+				"error":   msg,
+			},
+		}); updErr != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, updErr)
 		}
+		return
+	}
 		uploadParentID = variantFolder.ID
 	}
 
@@ -214,16 +151,18 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 		} else if result != nil && strings.TrimSpace(result.Error) != "" {
 			msg = result.Error
 		}
-		_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+		if updErr := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 			"last_drive_upload_result": map[string]interface{}{
 				"success": false,
 				"error":   msg,
 			},
-		})
+		}); updErr != nil {
+			log.Printf("drive_fallback: UpdateJobFields failed for %s: %v", jobID, updErr)
+		}
 		return
 	}
 
-	_ = api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
+	if err := api.fileQ.UpdateJobFields(ctx, jobID, map[string]interface{}{
 		"drive_url": result.WebViewLink,
 		"last_drive_upload_result": map[string]interface{}{
 			"success":     true,
@@ -237,7 +176,9 @@ func (api *JobAPI) tryDriveFallbackUpload(jobID string) {
 			"source":      "master_fallback_youtube_not_attempted",
 			"uploaded_by": "master",
 		},
-	})
+	}); err != nil {
+		log.Printf("drive_fallback: final UpdateJobFields failed for %s: %v", jobID, err)
+	}
 	log.Printf("☁️ Drive fallback completed for job %s: %s", jobID, result.WebViewLink)
 }
 
@@ -521,7 +462,7 @@ func resolveVideoPath(videosDir, jobID string, job map[string]interface{}) strin
 		strings.TrimSpace(toString(job["master_video_path"])),
 	}
 	if out, ok := job["worker_output"].(map[string]interface{}); ok {
-		candidates = append(candidates, extractOutputVideoPath(out))
+		candidates = append(candidates, jobsservice.ExtractOutputVideoPath(out))
 	}
 	for _, c := range candidates {
 		if c == "" {

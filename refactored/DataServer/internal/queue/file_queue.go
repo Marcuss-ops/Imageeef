@@ -122,10 +122,7 @@ type FileQueue struct {
 
 // FileQueueConfig holds configuration for the file queue
 type FileQueueConfig struct {
-	// FilePath is DEPRECATED - kept for config compatibility
-	FilePath   string
 	MaxRetries int
-	CacheTTL   time.Duration // DEPRECATED - no longer needed
 	DBStore    *store.SQLiteStore
 }
 

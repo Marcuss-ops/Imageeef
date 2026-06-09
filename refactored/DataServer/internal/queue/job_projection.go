@@ -9,15 +9,15 @@ import (
 	"velox-server/internal/store"
 )
 
-func ensureProjectionRenderPlanVersion(payload map[string]interface{}) map[string]interface{} {
+// renderPlanVersion ensures the render_plan_version field is always set.
+// Uses the same logic as ensureRenderPlanVersion in store_io.go.
+func renderPlanVersion(payload map[string]any) map[string]any {
 	if payload == nil {
-		payload = make(map[string]interface{})
+		payload = make(map[string]any)
 	}
-
 	if v, _ := payload["render_plan_version"].(string); strings.TrimSpace(v) != "" {
 		return payload
 	}
-
 	payload["render_plan_version"] = "v1"
 	return payload
 }
@@ -60,7 +60,7 @@ func GetJobPayload(ctx context.Context, jobID string, dbStore *store.SQLiteStore
 	payload["status"] = string(job.Status)
 	payload["video_name"] = job.VideoName
 	payload["project_id"] = job.ProjectID
-	payload = ensureProjectionRenderPlanVersion(payload)
+	payload = renderPlanVersion(payload)
 
 	return payload, nil
 }
@@ -164,7 +164,7 @@ func GetJobAsMap(ctx context.Context, jobID string, dbStore *store.SQLiteStore, 
 	if len(job.History) > 0 {
 		result["history"] = job.History
 	}
-	result = ensureProjectionRenderPlanVersion(result)
+	result = renderPlanVersion(result)
 
 	// Add payload fields
 	if job.Payload != nil {

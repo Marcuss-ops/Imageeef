@@ -186,9 +186,6 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Expected default log_level info, got %s", cfg.LogLevel)
 	}
 
-	if cfg.EnableCommandPolling {
-		t.Error("Expected command polling to be disabled by default")
-	}
 }
 
 // TestDefaultConfigEmptyWorkDir tests default config with empty work dir.

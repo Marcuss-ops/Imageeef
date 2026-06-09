@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -152,7 +153,9 @@ func (s *Service) ClaimNextJob(ctx context.Context, req ClaimRequest) (*ClaimRes
 	payload["id"] = jobID
 
 	if s.reg != nil {
-		_ = s.reg.Heartbeat(ctx, req.WorkerID, req.WorkerName, "busy", jobID, nil)
+		if err := s.reg.Heartbeat(ctx, req.WorkerID, req.WorkerName, "busy", jobID, nil); err != nil {
+			log.Printf("service: heartbeat failed for %s: %v", req.WorkerID, err)
+		}
 	}
 
 	return &ClaimResult{
@@ -381,9 +384,11 @@ func (s *Service) SubmitResult(ctx context.Context, req SubmitResultRequest) (bo
 		var err error
 		if s.fileQ != nil {
 			if len(req.Output) > 0 {
-				logEntries := extractWorkerLogEntries(req.Output, req.WorkerID)
+				logEntries := ExtractWorkerLogEntries(req.Output, req.WorkerID)
 				if len(logEntries) > 0 {
-					_ = s.fileQ.UpdateJobLogs(ctx, req.JobID, logEntries)
+					if err := s.fileQ.UpdateJobLogs(ctx, req.JobID, logEntries); err != nil {
+						log.Printf("service: failed to update job logs for %s: %v", req.JobID, err)
+					}
 				}
 			}
 
@@ -398,7 +403,7 @@ func (s *Service) SubmitResult(ctx context.Context, req SubmitResultRequest) (bo
 			}
 			if len(req.Output) > 0 {
 				updates["worker_output"] = req.Output
-				if path := extractOutputVideoPath(req.Output); path != "" {
+				if path := ExtractOutputVideoPath(req.Output); path != "" {
 					updates["master_video_path"] = path
 				}
 			}
@@ -410,7 +415,9 @@ func (s *Service) SubmitResult(ctx context.Context, req SubmitResultRequest) (bo
 			return false, err
 		}
 		if strings.TrimSpace(req.WorkerID) != "" && s.reg != nil {
-			_ = s.reg.Heartbeat(ctx, req.WorkerID, "", "online", "", nil)
+			if err := s.reg.Heartbeat(ctx, req.WorkerID, "", "online", "", nil); err != nil {
+				log.Printf("service: online heartbeat failed for %s: %v", req.WorkerID, err)
+			}
 		}
 		return s.fileQ != nil, nil
 	}
@@ -418,9 +425,11 @@ func (s *Service) SubmitResult(ctx context.Context, req SubmitResultRequest) (bo
 	var err error
 	if s.fileQ != nil {
 		if len(req.Output) > 0 {
-			logEntries := extractWorkerLogEntries(req.Output, req.WorkerID)
+			logEntries := ExtractWorkerLogEntries(req.Output, req.WorkerID)
 			if len(logEntries) > 0 {
-				_ = s.fileQ.UpdateJobLogs(ctx, req.JobID, logEntries)
+				if err := s.fileQ.UpdateJobLogs(ctx, req.JobID, logEntries); err != nil {
+					log.Printf("service: failed to update job logs on fail for %s: %v", req.JobID, err)
+				}
 			}
 		}
 		err = s.fileQ.FailJob(ctx, req.JobID, req.Error, true)
@@ -429,11 +438,12 @@ func (s *Service) SubmitResult(ctx context.Context, req SubmitResultRequest) (bo
 	}
 	if err != nil {
 		return false, err
-	}
-	if strings.TrimSpace(req.WorkerID) != "" && s.reg != nil {
-		_ = s.reg.Heartbeat(ctx, req.WorkerID, "", "online", "", nil)
-	}
-	return false, nil
+	}	if strings.TrimSpace(req.WorkerID) != "" && s.reg != nil {
+			if err := s.reg.Heartbeat(ctx, req.WorkerID, "", "online", "", nil); err != nil {
+				log.Printf("service: online heartbeat (fail path) failed for %s: %v", req.WorkerID, err)
+			}
+		}
+		return false, nil
 }
 
 func (s *Service) CompleteJob(ctx context.Context, jobID, workerID string) error {
@@ -447,7 +457,9 @@ func (s *Service) CompleteJob(ctx context.Context, jobID, workerID string) error
 		return err
 	}
 	if strings.TrimSpace(workerID) != "" && s.reg != nil {
-		_ = s.reg.Heartbeat(ctx, workerID, "", "online", "", nil)
+		if err := s.reg.Heartbeat(ctx, workerID, "", "online", "", nil); err != nil {
+			log.Printf("service: complete heartbeat failed for %s: %v", workerID, err)
+		}
 	}
 	return nil
 }
@@ -476,7 +488,9 @@ func (s *Service) FailJob(ctx context.Context, jobID, workerID, errMsg string) e
 		return err
 	}
 	if strings.TrimSpace(workerID) != "" && s.reg != nil {
-		_ = s.reg.Heartbeat(ctx, workerID, "", "online", "", nil)
+		if err := s.reg.Heartbeat(ctx, workerID, "", "online", "", nil); err != nil {
+			log.Printf("service: fail heartbeat failed for %s: %v", workerID, err)
+		}
 	}
 	return nil
 }
@@ -701,7 +715,7 @@ func buildJobLogEvents(jobID string, rawLogs interface{}) []map[string]interface
 	}
 }
 
-func extractWorkerLogEntries(output map[string]interface{}, workerID string) []queue.JobLogEntry {
+func ExtractWorkerLogEntries(output map[string]interface{}, workerID string) []queue.JobLogEntry {
 	if len(output) == 0 {
 		return nil
 	}
@@ -760,7 +774,7 @@ func extractWorkerLogEntries(output map[string]interface{}, workerID string) []q
 	return entries
 }
 
-func extractOutputVideoPath(output map[string]interface{}) string {
+func ExtractOutputVideoPath(output map[string]interface{}) string {
 	if len(output) == 0 {
 		return ""
 	}
@@ -770,7 +784,7 @@ func extractOutputVideoPath(output map[string]interface{}) string {
 		}
 	}
 	if nested, ok := output["result"].(map[string]interface{}); ok {
-		return extractOutputVideoPath(nested)
+		return ExtractOutputVideoPath(nested)
 	}
 	return ""
 }

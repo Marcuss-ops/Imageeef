@@ -35,14 +35,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	w.wg.Add(1)
 	go w.jobLoop(ctx)
 
-	// Command polling is disabled by default because the master-side command API
-	// is legacy and noisy. It can be re-enabled explicitly through config when needed.
-	if w.config.EnableCommandPolling {
-		w.wg.Add(1)
-		go w.commandLoop(ctx)
-	} else {
-		w.logger.Info("[COMMANDS] Command polling disabled")
-	}
+	w.logger.Info("[COMMANDS] Command polling disabled (legacy feature)")
 
 	// Wait for stop signal
 	<-w.stopChan
