@@ -19,44 +19,63 @@ type nativeVideoSceneRequest struct {
 	DurationSeconds float64  `json:"duration_seconds,omitempty"`
 }
 
+type nativeVideoClipRequest struct {
+	Text            string   `json:"text,omitempty"`
+	ClipLink        string   `json:"clip_link,omitempty"`
+	ClipLinks       []string `json:"clip_links,omitempty"`
+	DurationSeconds float64  `json:"duration_seconds,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
+}
+
 type nativeVideoEngineRequest struct {
 	JobID               string                    `json:"job_id"`
 	VideoName           string                    `json:"video_name"`
 	ScriptText          string                    `json:"script_text"`
 	VoiceoverPaths      []string                  `json:"voiceover_paths,omitempty"`
 	Scenes              []nativeVideoSceneRequest `json:"scenes"`
+	VideoMode           string                    `json:"video_mode,omitempty"`
+	IntroClipPaths      []string                  `json:"intro_clip_paths,omitempty"`
+	StockClipPaths      []string                  `json:"stock_clip_paths,omitempty"`
+	ClipSegments        []nativeVideoClipRequest  `json:"clip_segments,omitempty"`
 	ScenesJSON          string                    `json:"scenes_json,omitempty"`
 	OutputPath          string                    `json:"output_path"`
+	DriveOutputFolder   string                    `json:"drive_output_folder,omitempty"`
 	AudioLanguageForSRT string                    `json:"audio_language_for_srt,omitempty"`
 }
 
 func (w *VideoGenerationWorkflow) runNativeCxxEngine(
 	ctx context.Context,
 	tempDir string,
-	outputPath string,
-	audioPath string,
-	scenesJSON string,
-	scriptText string,
-	audioLanguageForSRT string,
+	input VideoGenerationInput,
 ) error {
-	request := nativeVideoEngineRequest{
-		VideoName:           filepath.Base(strings.TrimSuffix(outputPath, filepath.Ext(outputPath))),
-		ScriptText:          scriptText,
-		OutputPath:          outputPath,
-		AudioLanguageForSRT: audioLanguageForSRT,
-		ScenesJSON:          strings.TrimSpace(scenesJSON),
-	}
-	if strings.TrimSpace(audioPath) != "" {
-		request.VoiceoverPaths = []string{strings.TrimSpace(audioPath)}
+	videoMode := strings.TrimSpace(input.VideoMode)
+	if videoMode == "" && (len(input.IntroClipPaths) > 0 || len(input.StockClipPaths) > 0 || len(input.ClipSegments) > 0) {
+		videoMode = "clip_stock"
 	}
 
-	request.Scenes = parseNativeVideoScenes(scenesJSON)
+	request := nativeVideoEngineRequest{
+		VideoName:           filepath.Base(strings.TrimSuffix(input.OutputPath, filepath.Ext(input.OutputPath))),
+		ScriptText:          input.ScriptText,
+		OutputPath:          input.OutputPath,
+		AudioLanguageForSRT: input.AudioLanguageForSRT,
+		ScenesJSON:          strings.TrimSpace(input.ScenesJSON),
+		VideoMode:           videoMode,
+		IntroClipPaths:      sanitizeStrings(input.IntroClipPaths),
+		StockClipPaths:      sanitizeStrings(input.StockClipPaths),
+		DriveOutputFolder:   strings.TrimSpace(input.DriveOutputFolder),
+	}
+	if strings.TrimSpace(input.AudioPath) != "" {
+		request.VoiceoverPaths = []string{strings.TrimSpace(input.AudioPath)}
+	}
+
+	request.Scenes = parseNativeVideoScenes(input.ScenesJSON)
 	if len(request.Scenes) == 0 {
 		request.Scenes = []nativeVideoSceneRequest{{
-			Text:            strings.TrimSpace(scriptText),
+			Text:            strings.TrimSpace(input.ScriptText),
 			DurationSeconds: 5,
 		}}
 	}
+	request.ClipSegments = parseNativeVideoClips(input.ClipSegments)
 	for i := range request.Scenes {
 		if request.Scenes[i].DurationSeconds <= 0 {
 			request.Scenes[i].DurationSeconds = 5
@@ -96,11 +115,37 @@ func (w *VideoGenerationWorkflow) runNativeCxxEngine(
 		w.logger.Info("Native engine stderr: %s", trimmed)
 	}
 
-	if _, err := os.Stat(outputPath); err != nil {
-		return fmt.Errorf("native engine did not create output file %s: %w", outputPath, err)
+	if _, err := os.Stat(input.OutputPath); err != nil {
+		return fmt.Errorf("native engine did not create output file %s: %w", input.OutputPath, err)
 	}
 
 	return nil
+}
+
+func parseNativeVideoClips(raw []interface{}) []nativeVideoClipRequest {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	clips := make([]nativeVideoClipRequest, 0, len(raw))
+	for _, item := range raw {
+		obj, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		clip := nativeVideoClipRequest{
+			Text:            toSceneString(obj["text"]),
+			ClipLink:        firstClipSource(obj),
+			ClipLinks:       clipSources(obj),
+			DurationSeconds: clipDuration(obj),
+			Kind:            toSceneString(obj["kind"]),
+		}
+		if len(clip.ClipLinks) == 0 && clip.ClipLink != "" {
+			clip.ClipLinks = []string{clip.ClipLink}
+		}
+		clips = append(clips, clip)
+	}
+	return clips
 }
 
 func parseNativeVideoScenes(scenesJSON string) []nativeVideoSceneRequest {
@@ -166,6 +211,76 @@ func sceneImageLinks(scene map[string]interface{}) []string {
 		}
 	}
 	return links
+}
+
+func firstClipSource(item map[string]interface{}) string {
+	if item == nil {
+		return ""
+	}
+	if s := toSceneString(item["clip_link"]); s != "" {
+		return s
+	}
+	for _, link := range clipSources(item) {
+		if strings.TrimSpace(link) != "" {
+			return strings.TrimSpace(link)
+		}
+	}
+	return ""
+}
+
+func clipSources(item map[string]interface{}) []string {
+	if item == nil {
+		return nil
+	}
+	var links []string
+	if v, ok := item["clip_links"]; ok {
+		switch vv := v.(type) {
+		case []interface{}:
+			for _, it := range vv {
+				if s := toSceneString(it); s != "" {
+					links = append(links, s)
+				}
+			}
+		case []string:
+			for _, s := range vv {
+				if strings.TrimSpace(s) != "" {
+					links = append(links, strings.TrimSpace(s))
+				}
+			}
+		}
+	}
+	return links
+}
+
+func clipDuration(item map[string]interface{}) float64 {
+	if item == nil {
+		return 0
+	}
+	switch v := item["duration_seconds"].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	}
+	return 0
+}
+
+func sanitizeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func toSceneString(v interface{}) string {

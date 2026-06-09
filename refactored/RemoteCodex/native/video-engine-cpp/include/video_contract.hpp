@@ -19,7 +19,20 @@ struct SceneVideoRequest {
     std::vector<SceneAsset> scenes;
     std::string scenes_json;
     std::string output_path;
+    std::string video_mode;
+    std::vector<std::string> intro_clip_paths;
+    std::vector<std::string> stock_clip_paths;
+    std::string clip_segments_json;
+    std::string drive_output_folder;
     std::string audio_language_for_srt;
+};
+
+struct ClipAsset {
+    std::string text;
+    std::string clip_link;
+    std::vector<std::string> clip_links;
+    double duration_seconds{4.0};
+    std::string kind;
 };
 
 struct SceneVideoResult {
@@ -30,4 +43,3 @@ struct SceneVideoResult {
 };
 
 }  // namespace velox::video
-

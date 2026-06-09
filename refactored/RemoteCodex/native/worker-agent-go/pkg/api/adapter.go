@@ -1,4 +1,4 @@
-// Package api provides endpoint adaptation for legacy and new API modes.
+// Package api provides endpoint adaptation for the canonical Go master API.
 package api
 
 import "velox-worker-agent/pkg/config"
@@ -16,30 +16,17 @@ type EndpointSet struct {
 	UpdateStatus     string
 }
 
-// endpointSets defines the endpoint paths for each API mode.
-var endpointSets = map[config.APIMode]EndpointSet{
-	config.APIModeNewAPI: {
-		RegisterWorker:   "/api/workers/register",
-		UnregisterWorker: "/api/workers/unregister",
-		Heartbeat:        "/api/workers/heartbeat",
-		GetJob:           "/api/jobs/get",
-		SubmitResult:     "/api/jobs/result",
-		HealthCheck:      "/health",
-		GetCommands:      "/api/v1/worker/commands",
-		AckCommand:       "/api/workers/commands/ack",
-		UpdateStatus:     "/api/workers/status",
-	},
-	config.APIModeLegacyV1: {
-		RegisterWorker:   "/api/v1/workers/register",
-		UnregisterWorker: "/api/v1/workers/unregister",
-		Heartbeat:        "/api/v1/workers/heartbeat",
-		GetJob:           "/api/v1/queue/job",
-		SubmitResult:     "/api/v1/jobs/result",
-		HealthCheck:      "/api/v1/health",
-		GetCommands:      "/api/v1/workers/commands",
-		AckCommand:       "/api/v1/workers/commands/ack",
-		UpdateStatus:     "/api/v1/workers/status",
-	},
+// newAPIEndpoints defines the canonical endpoint paths.
+var newAPIEndpoints = EndpointSet{
+	RegisterWorker:   "/api/workers/register",
+	UnregisterWorker: "/api/workers/unregister",
+	Heartbeat:        "/api/workers/heartbeat",
+	GetJob:           "/api/jobs/get",
+	SubmitResult:     "/api/jobs/result",
+	HealthCheck:      "/health",
+	GetCommands:      "/api/workers/commands",
+	AckCommand:       "/api/workers/commands/ack",
+	UpdateStatus:     "/api/workers/status",
 }
 
 // EndpointAdapter provides API endpoint resolution based on the configured mode.
@@ -50,20 +37,10 @@ type EndpointAdapter struct {
 
 // NewEndpointAdapter creates a new adapter for the given API mode.
 func NewEndpointAdapter(mode config.APIMode) *EndpointAdapter {
-	// Default to new API if mode is empty or invalid
-	if mode == "" {
-		mode = config.APIModeNewAPI
-	}
-
-	endpoints, ok := endpointSets[mode]
-	if !ok {
-		// Fallback to new API for unknown modes
-		endpoints = endpointSets[config.APIModeNewAPI]
-	}
-
+	// All modes resolve to canonical Go master endpoints
 	return &EndpointAdapter{
 		mode:      mode,
-		endpoints: endpoints,
+		endpoints: newAPIEndpoints,
 	}
 }
 
@@ -105,11 +82,6 @@ func (a *EndpointAdapter) SubmitResult() string {
 // HealthCheck returns the endpoint for health checks.
 func (a *EndpointAdapter) HealthCheck() string {
 	return a.endpoints.HealthCheck
-}
-
-// IsLegacy returns true if the adapter is using legacy v1 endpoints.
-func (a *EndpointAdapter) IsLegacy() bool {
-	return a.mode == config.APIModeLegacyV1
 }
 
 // GetCommands returns the endpoint for fetching worker commands.

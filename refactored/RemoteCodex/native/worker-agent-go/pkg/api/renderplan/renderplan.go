@@ -469,7 +469,7 @@ func validateAnyClipVoiceover(plan *RenderPlan) *PlanError {
 
 	// Check for ANY_CLIP: at least one of start_clip_paths, middle_clip_paths, end_clip_paths, stock_clip_paths
 	hasClip := false
-	clipFields := []string{"start_clip_paths", "middle_clip_paths", "end_clip_paths", "stock_clip_paths"}
+	clipFields := []string{"intro_clip_paths", "start_clip_paths", "middle_clip_paths", "end_clip_paths", "stock_clip_paths", "clip_segments"}
 	for _, field := range clipFields {
 		if clips, ok := params[field]; ok {
 			if clipList, ok := clips.([]interface{}); ok && len(clipList) > 0 {
@@ -536,7 +536,7 @@ func validateAnyClipVoiceover(plan *RenderPlan) *PlanError {
 		return &PlanError{
 			Code:    ERR_PLAN_INCONSISTENT,
 			Field:   "parameters",
-			Message: "at least one clip path or scenes payload is required (start_clip_paths, middle_clip_paths, end_clip_paths, stock_clip_paths, or scenes_json)",
+			Message: "at least one clip path or scenes payload is required (intro_clip_paths, start_clip_paths, middle_clip_paths, end_clip_paths, stock_clip_paths, clip_segments, or scenes_json)",
 		}
 	}
 

@@ -86,10 +86,24 @@ type renderJobParams struct {
 	rawEntities                       map[string]interface{}
 	audioLanguageForSRT               string
 	segmentsForSRTGeneration          []interface{}
+	videoMode                         string
+	introClipPaths                    []string
+	stockClipPaths                    []string
+	clipSegments                      []interface{}
+	driveOutputFolder                 string
 }
 
 // extractRenderJobParams safely extracts all render/video/audio job parameters.
 func extractRenderJobParams(params map[string]interface{}) renderJobParams {
+	introClipPaths := convertToStringSlice(params["intro_clip_paths"])
+	if len(introClipPaths) == 0 {
+		introClipPaths = convertToStringSlice(params["start_clip_paths"])
+	}
+	stockClipPaths := convertToStringSlice(params["stock_clip_paths"])
+	if len(stockClipPaths) == 0 {
+		stockClipPaths = convertToStringSlice(params["stock_clip_sources"])
+	}
+
 	return renderJobParams{
 		audioPath:                         getStringParam(params, "audio_path", ""),
 		outputPath:                        getStringParam(params, "output_path", ""),
@@ -107,6 +121,11 @@ func extractRenderJobParams(params map[string]interface{}) renderJobParams {
 		rawEntities:                       getMapParam(params, "raw_entities"),
 		audioLanguageForSRT:               getStringParam(params, "audio_language_for_srt", ""),
 		segmentsForSRTGeneration:          getSliceParam(params, "segments_for_srt_generation"),
+		videoMode:                         getStringParam(params, "video_mode", ""),
+		introClipPaths:                    introClipPaths,
+		stockClipPaths:                    stockClipPaths,
+		clipSegments:                      getSliceParam(params, "clip_segments"),
+		driveOutputFolder:                 getStringParam(params, "drive_output_folder", getStringParam(params, "output_directory", "")),
 	}
 }
 
@@ -608,22 +627,29 @@ func (w *Worker) executeWorkflowJob(ctx context.Context, job *api.Job, jobLabel 
 
 	// Execute the workflow
 	resultPath, err := workflow.ProcessSingleVideo(ctx,
-		p.audioPath,
-		outputPath,
-		p.scenesJSON,
-		p.scriptText,
-		p.startClipPaths,
-		p.middleClipPaths,
-		p.stockClipSources,
-		p.endClipPaths,
-		p.backgroundMusicPaths,
-		p.backgroundVideoForImgOverlaysPath,
-		p.associazioniFinaliConTimestamp,
-		p.formattedImgEntities,
-		p.preAssociatedEntities,
-		p.rawEntities,
-		p.audioLanguageForSRT,
-		p.segmentsForSRTGeneration,
+		video.VideoGenerationInput{
+			AudioPath:                         p.audioPath,
+			OutputPath:                        outputPath,
+			ScenesJSON:                        p.scenesJSON,
+			ScriptText:                        p.scriptText,
+			StartClipPaths:                    p.startClipPaths,
+			MiddleClipPaths:                   p.middleClipPaths,
+			StockClipSources:                  p.stockClipSources,
+			EndClipPaths:                      p.endClipPaths,
+			BackgroundMusicPaths:              p.backgroundMusicPaths,
+			BackgroundVideoForImgOverlaysPath: p.backgroundVideoForImgOverlaysPath,
+			AssociazioniFinaliConTimestamp:    p.associazioniFinaliConTimestamp,
+			FormattedImgEntities:              p.formattedImgEntities,
+			PreAssociatedEntities:             p.preAssociatedEntities,
+			RawEntities:                       p.rawEntities,
+			AudioLanguageForSRT:               p.audioLanguageForSRT,
+			SegmentsForSRTGeneration:          p.segmentsForSRTGeneration,
+			VideoMode:                         p.videoMode,
+			IntroClipPaths:                    p.introClipPaths,
+			StockClipPaths:                    p.stockClipPaths,
+			ClipSegments:                      p.clipSegments,
+			DriveOutputFolder:                 p.driveOutputFolder,
+		},
 		statusCallback)
 
 	if err != nil {

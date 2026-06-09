@@ -5,12 +5,27 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"velox-server/internal/store"
 )
 
+func ensureRenderPlanVersion(payload map[string]any) map[string]any {
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+
+	if v, _ := payload["render_plan_version"].(string); strings.TrimSpace(v) != "" {
+		return payload
+	}
+
+	payload["render_plan_version"] = "v1"
+	return payload
+}
+
 // MapToJob converts a map[string]any to a Job struct
 func MapToJob(m map[string]any) *Job {
+	m = ensureRenderPlanVersion(m)
 	job := &Job{
 		Payload: m,
 	}
@@ -155,6 +170,7 @@ func PersistJob(job *Job, dbStore *store.SQLiteStore) error {
 			m[k] = v
 		}
 	}
+	m = ensureRenderPlanVersion(m)
 
 	// Overwrite with struct fields
 	m["job_id"] = job.JobID

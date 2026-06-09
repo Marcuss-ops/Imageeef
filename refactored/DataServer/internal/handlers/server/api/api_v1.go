@@ -91,7 +91,6 @@ func RegisterV1Routes(r *gin.Engine, cfg *config.Config, fileQ *queue.FileQueue,
 		// Workers - Core API
 		v1Admin.GET("/workers", workers.WorkersList(reg, workersRepo))
 		v1Admin.GET("/workers/:id/logs", workers.WorkerLogsHandler(reg))
-		v1.POST("/workers/heartbeat", workers.Heartbeat(reg))
 		v1Admin.POST("/workers/clear_all", dashboard.WorkersClearAll(redisQ, reg))
 		if workerUpdateHandler != nil {
 			// Update orchestration endpoints used by the frontend and legacy bundle.
@@ -196,6 +195,9 @@ func RegisterV1Routes(r *gin.Engine, cfg *config.Config, fileQ *queue.FileQueue,
 		// Script - Core API
 		v1Admin.POST("/script/simple", pipeline.ScriptSimple(cfg))
 		v1Admin.POST("/script/multiple", pipeline.ScriptMultiple(cfg))
+
+		// Video smoke test - Core API
+		v1Admin.POST("/video/smoke-clip-stock", scenevideo.CreateSmokeClipStock(cfg, fileQ))
 
 		// Compat endpoints
 		v1Admin.GET("/endpoints-status", proxy.EndpointsStatus)

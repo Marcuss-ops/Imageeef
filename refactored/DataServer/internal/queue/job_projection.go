@@ -4,9 +4,23 @@ package queue
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"velox-server/internal/store"
 )
+
+func ensureProjectionRenderPlanVersion(payload map[string]interface{}) map[string]interface{} {
+	if payload == nil {
+		payload = make(map[string]interface{})
+	}
+
+	if v, _ := payload["render_plan_version"].(string); strings.TrimSpace(v) != "" {
+		return payload
+	}
+
+	payload["render_plan_version"] = "v1"
+	return payload
+}
 
 // GetJob retrieves a job by ID
 func GetJob(ctx context.Context, jobID string, dbStore *store.SQLiteStore, activeJobs map[string]*Job) (*Job, error) {
@@ -46,6 +60,7 @@ func GetJobPayload(ctx context.Context, jobID string, dbStore *store.SQLiteStore
 	payload["status"] = string(job.Status)
 	payload["video_name"] = job.VideoName
 	payload["project_id"] = job.ProjectID
+	payload = ensureProjectionRenderPlanVersion(payload)
 
 	return payload, nil
 }
@@ -149,6 +164,7 @@ func GetJobAsMap(ctx context.Context, jobID string, dbStore *store.SQLiteStore, 
 	if len(job.History) > 0 {
 		result["history"] = job.History
 	}
+	result = ensureProjectionRenderPlanVersion(result)
 
 	// Add payload fields
 	if job.Payload != nil {

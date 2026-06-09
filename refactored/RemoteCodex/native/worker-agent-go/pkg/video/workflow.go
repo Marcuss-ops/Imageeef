@@ -18,6 +18,32 @@ type VideoGenerationWorkflow struct {
 	tempFiles []string
 }
 
+// VideoGenerationInput groups all parameters needed to build a video job.
+// It keeps the worker-to-native contract extensible without a long argument list.
+type VideoGenerationInput struct {
+	AudioPath                         string
+	OutputPath                        string
+	ScenesJSON                        string
+	ScriptText                        string
+	StartClipPaths                    []string
+	MiddleClipPaths                   []string
+	StockClipSources                  []string
+	EndClipPaths                      []string
+	BackgroundMusicPaths              []string
+	BackgroundVideoForImgOverlaysPath string
+	AssociazioniFinaliConTimestamp    map[string]interface{}
+	FormattedImgEntities              map[string]interface{}
+	PreAssociatedEntities             map[string]interface{}
+	RawEntities                       map[string]interface{}
+	AudioLanguageForSRT               string
+	SegmentsForSRTGeneration          []interface{}
+	VideoMode                         string
+	IntroClipPaths                    []string
+	StockClipPaths                    []string
+	ClipSegments                      []interface{}
+	DriveOutputFolder                 string
+}
+
 // NewVideoGenerationWorkflow creates a new workflow instance.
 func NewVideoGenerationWorkflow(cfg *config.WorkerConfig, log *logger.Logger) *VideoGenerationWorkflow {
 	return &VideoGenerationWorkflow{
@@ -40,29 +66,20 @@ func (w *VideoGenerationWorkflow) Cleanup() {
 
 // ProcessSingleVideo processes a single video using the provided parameters.
 func (w *VideoGenerationWorkflow) ProcessSingleVideo(ctx context.Context,
-	audioPath string,
-	outputPath string,
-	scenesJSON string,
-	scriptText string,
-	startClipPaths []string,
-	middleClipPaths []string,
-	stockClipSources []string,
-	endClipPaths []string,
-	backgroundMusicPaths []string,
-	backgroundVideoForImgOverlaysPath string,
-	associazioniFinaliConTimestamp map[string]interface{},
-	formattedImgEntities map[string]interface{},
-	preAssociatedEntities map[string]interface{},
-	rawEntities map[string]interface{},
-	audioLanguageForSRT string,
-	segmentsForSRTGeneration []interface{},
+	input VideoGenerationInput,
 	statusCallback func(string, bool)) (string, error) {
 
 	w.logger.Info("Starting video generation process")
-	w.logger.Info("Audio path: %s", audioPath)
-	w.logger.Info("Output path: %s", outputPath)
-	if strings.TrimSpace(scenesJSON) != "" {
-		w.logger.Info("Scenes JSON provided (%d bytes)", len(strings.TrimSpace(scenesJSON)))
+	w.logger.Info("Audio path: %s", input.AudioPath)
+	w.logger.Info("Output path: %s", input.OutputPath)
+	if strings.TrimSpace(input.ScenesJSON) != "" {
+		w.logger.Info("Scenes JSON provided (%d bytes)", len(strings.TrimSpace(input.ScenesJSON)))
+	}
+	if strings.TrimSpace(input.VideoMode) != "" {
+		w.logger.Info("Video mode: %s", strings.TrimSpace(input.VideoMode))
+	}
+	if strings.TrimSpace(input.DriveOutputFolder) != "" {
+		w.logger.Info("Drive output folder hint: %s", strings.TrimSpace(input.DriveOutputFolder))
 	}
 	defer w.Cleanup()
 
@@ -73,7 +90,7 @@ func (w *VideoGenerationWorkflow) ProcessSingleVideo(ctx context.Context,
 	}
 	w.tempFiles = append(w.tempFiles, tempDir)
 
-	if trimmed := strings.TrimSpace(scenesJSON); trimmed != "" {
+	if trimmed := strings.TrimSpace(input.ScenesJSON); trimmed != "" {
 		scenesFile := filepath.Join(tempDir, "scenes.json")
 		if err := os.WriteFile(scenesFile, []byte(trimmed), 0644); err != nil {
 			return "", fmt.Errorf("failed to persist scenes json: %w", err)
@@ -84,12 +101,12 @@ func (w *VideoGenerationWorkflow) ProcessSingleVideo(ctx context.Context,
 
 	statusCallback("Starting video processing", false)
 
-	if err := w.runNativeCxxEngine(ctx, tempDir, outputPath, audioPath, scenesJSON, scriptText, audioLanguageForSRT); err != nil {
+	if err := w.runNativeCxxEngine(ctx, tempDir, input); err != nil {
 		return "", err
 	}
-	w.logger.Info("Native C++ video engine completed output at %s", outputPath)
+	w.logger.Info("Native C++ video engine completed output at %s", input.OutputPath)
 
-	return outputPath, nil
+	return input.OutputPath, nil
 }
 
 // TranscriptionSegment represents a single segment from audio transcription.

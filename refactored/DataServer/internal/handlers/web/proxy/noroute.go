@@ -54,27 +54,6 @@ func NoRouteHandler(serveSPA gin.HandlerFunc, landing gin.HandlerFunc, darkEdito
 			path = "/"
 		}
 
-		// Legacy worker compatibility shim:
-		// Old workers may still poll command endpoints even after the route cutover.
-		// Respond with an empty command list instead of surfacing a noisy 404.
-		if c.Request.Method == http.MethodGet &&
-			(path == "/api/workers/commands" || path == "/api/v1/workers/commands" || path == "/workers/commands") {
-			atomic.AddInt64(&cutoverMetrics.GoHandledRequests, 1)
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data":    []interface{}{},
-			})
-			return
-		}
-		if c.Request.Method == http.MethodPost &&
-			(path == "/api/workers/commands/ack" || path == "/api/v1/workers/commands/ack" || path == "/workers/commands/ack") {
-			atomic.AddInt64(&cutoverMetrics.GoHandledRequests, 1)
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-			})
-			return
-		}
-
 		if path == "/favicon.ico" || path == "/dark_editor_v2/favicon.ico" {
 			c.Data(http.StatusOK, "image/svg+xml; charset=utf-8", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f97316"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0f172a"/><circle cx="32" cy="32" r="18" fill="url(#g)"/><path d="M25 27h14l-7 14z" fill="#fff"/></svg>`))
 			return
@@ -130,10 +109,7 @@ func NoRouteHandler(serveSPA gin.HandlerFunc, landing gin.HandlerFunc, darkEdito
 
 		// All other unmatched routes: return 404
 		atomic.AddInt64(&cutoverMetrics.BlockedRequests, 1)
-		// Skip logging noisy 404s (e.g. workers calling wrong heartbeat path)
-		if path != "/workers/heartbeat" {
-			log.Printf("❌ 404: %s %s (no Python fallback)", c.Request.Method, path)
-		}
+		log.Printf("❌ 404: %s %s (no Python fallback)", c.Request.Method, path)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":  "route not found",
 			"path":   path,

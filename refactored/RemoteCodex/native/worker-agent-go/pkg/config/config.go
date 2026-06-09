@@ -15,9 +15,7 @@ import (
 type APIMode string
 
 const (
-	// APIModeLegacyV1 uses Python master v1 endpoints (/api/v1/workers/heartbeat, /api/v1/queue/job)
-	APIModeLegacyV1 APIMode = "legacy_v1"
-	// APIModeNewAPI uses new Go master endpoints (/api/workers/*, /api/jobs/get)
+	// APIModeNewAPI uses Go master endpoints (/api/workers/*, /api/jobs/get)
 	APIModeNewAPI APIMode = "new_api"
 )
 
@@ -29,7 +27,7 @@ type WorkerConfig struct {
 	WorkerName string  `json:"worker_name"` // Human-readable worker name (e.g., video-worker-1)
 	WorkDir    string  `json:"work_dir"`    // Base directory for velox installations (e.g., /opt/velox)
 	LogLevel   string  `json:"log_level"`   // Log level: debug, info, warn, error
-	APIMode    APIMode `json:"api_mode"`    // API mode: legacy_v1 or new_api (default: new_api)
+	APIMode    APIMode `json:"api_mode"`    // API mode: new_api (default)
 
 	// Phase 1: GOD Workflow feature flags
 	GodCPUWorkflowEnabled bool `json:"god_cpu_workflow_enabled"` // Enable GOD CPU workflow path (Phase 1)

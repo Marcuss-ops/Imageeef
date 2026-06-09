@@ -350,6 +350,7 @@ func (w *Worker) handleSmokeJobCommand(ctx context.Context, cmd api.WorkerComman
 	timeoutSecs := 60
 	simulateError := false
 	jobID := fmt.Sprintf("smoke-%d", time.Now().UTC().Unix())
+	jobParams := map[string]interface{}{}
 
 	if cmd.Payload != nil {
 		if v, ok := cmd.Payload["job_type"].(string); ok && v != "" {
@@ -364,6 +365,38 @@ func (w *Worker) handleSmokeJobCommand(ctx context.Context, cmd api.WorkerComman
 		if v, ok := cmd.Payload["job_id"].(string); ok && v != "" {
 			jobID = v
 		}
+		for k, v := range cmd.Payload {
+			switch k {
+			case "job_type", "timeout_secs", "simulate_error", "job_id":
+				continue
+			default:
+				jobParams[k] = v
+			}
+		}
+	}
+
+	if jobType == "health_check" {
+		if _, ok := jobParams["video_mode"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["intro_clip_paths"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["stock_clip_paths"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["voiceover_path"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["voiceover_paths"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["clip_segments"]; ok {
+			jobType = "process_video"
+		}
+		if _, ok := jobParams["scenes_json"]; ok {
+			jobType = "process_video"
+		}
 	}
 
 	if simulateError {
@@ -376,6 +409,16 @@ func (w *Worker) handleSmokeJobCommand(ctx context.Context, cmd api.WorkerComman
 		Priority:    0,
 		TimeoutSecs: timeoutSecs,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		Parameters:  jobParams,
+	}
+
+	if jobType == "process_video" {
+		if _, ok := jobParams["output_path"]; !ok {
+			smokeJob.Parameters["output_path"] = fmt.Sprintf("/tmp/velox/output/%s.mp4", jobID)
+		}
+		if _, ok := jobParams["video_mode"]; !ok {
+			smokeJob.Parameters["video_mode"] = "clip_stock"
+		}
 	}
 
 	output, err := w.runJobTask(ctx, smokeJob)

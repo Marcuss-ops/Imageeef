@@ -150,10 +150,13 @@ func validateJobPayload(payload map[string]interface{}) (bool, []string, map[str
 		urlField  string
 		display   string
 	}{
+		{"intro_clips", "intro_clips_urls", "intro_clips"},
+		{"intro_clip_paths", "intro_clip_paths", "intro_clip_paths"},
 		{"start_clips", "start_clips_urls", "start_clips"},
 		{"middle_clips", "middle_clips_urls", "middle_clips"},
 		{"end_clips", "end_clips_urls", "end_clips"},
 		{"stock_clips", "stock_clips_urls", "stock_clips"},
+		{"stock_clip_paths", "stock_clip_paths", "stock_clip_paths"},
 	}
 
 	hasAnyClip := false
@@ -175,7 +178,14 @@ func validateJobPayload(payload map[string]interface{}) (bool, []string, map[str
 	}
 
 	if !hasAnyClip {
-		errors = append(errors, "❌ NESSUN CLIP PRESENTE - Servono clip in start/middle/end/stock")
+		if segments, ok := payload["clip_segments"].([]interface{}); ok && len(segments) > 0 {
+			hasAnyClip = true
+			details["clip_segments"] = fmt.Sprintf("%d segments", len(segments))
+		}
+	}
+
+	if !hasAnyClip {
+		errors = append(errors, "❌ NESSUN CLIP PRESENTE - Servono clip in intro/start/middle/end/stock oppure clip_segments")
 	} else {
 		details["clips"] = clipsDetail
 	}
@@ -226,14 +236,17 @@ func fingerprintPayload(data map[string]interface{}) string {
 	payload := map[string]string{
 		"video_name":       getStringOrEmpty(data, "video_name"),
 		"voiceovers":       getStringOrEmpty(data, "voiceovers_urls", "voiceovers"),
+		"intro_clips":      getStringOrEmpty(data, "intro_clips_urls", "intro_clips", "intro_clip_paths"),
 		"start_clips":      getStringOrEmpty(data, "start_clips_urls", "start_clips"),
 		"middle_clips":     getStringOrEmpty(data, "middle_clips_urls", "middle_clips"),
 		"end_clips":        getStringOrEmpty(data, "end_clips_urls", "end_clips"),
 		"stock_clips":      getStringOrEmpty(data, "stock_clips_urls", "stock_clips"),
+		"stock_clip_paths": getStringOrEmpty(data, "stock_clip_paths"),
 		"background":       getStringOrEmpty(data, "background_path_url", "background"),
 		"background_music": getStringOrEmpty(data, "background_music_urls", "background_music"),
 		"entities":         getStringOrEmpty(data, "json_entities", "entities"),
 		"output_video_id":  getStringOrEmpty(data, "output_video_id"),
+		"video_mode":       getStringOrEmpty(data, "video_mode"),
 	}
 
 	// Sort keys and serialize
@@ -383,6 +396,12 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 	if _, ok := data["start_clips"]; ok {
 		normalized["start_clips_urls"] = normalizeList(data["start_clips"])
 	}
+	if _, ok := data["intro_clips"]; ok {
+		normalized["intro_clips_urls"] = normalizeList(data["intro_clips"])
+	}
+	if _, ok := data["intro_clip_paths"]; ok {
+		normalized["intro_clip_paths"] = normalizeList(data["intro_clip_paths"])
+	}
 	if _, ok := data["middle_clips"]; ok {
 		normalized["middle_clips_urls"] = normalizeList(data["middle_clips"])
 	}
@@ -391,6 +410,12 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 	}
 	if _, ok := data["stock_clips"]; ok {
 		normalized["stock_clips_urls"] = normalizeList(data["stock_clips"])
+	}
+	if _, ok := data["stock_clip_paths"]; ok {
+		normalized["stock_clip_paths"] = normalizeList(data["stock_clip_paths"])
+	}
+	if _, ok := data["clip_segments"]; ok {
+		normalized["clip_segments"] = data["clip_segments"]
 	}
 	if _, ok := data["voiceovers"]; ok {
 		normalized["voiceovers_urls"] = normalizeList(data["voiceovers"])
@@ -417,10 +442,15 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 
 	// Build slot_data
 	startClips := normalizeListToArray(data["start_clips"])
+	introClips := normalizeListToArray(data["intro_clips"])
+	if len(introClips) == 0 {
+		introClips = normalizeListToArray(data["intro_clip_paths"])
+	}
 	middleClips := normalizeListToArray(data["middle_clips"])
 	endClips := normalizeListToArray(data["end_clips"])
 	stockClips := normalizeListToArray(data["stock_clips"])
 	voiceovers := normalizeListToArray(data["voiceovers"])
+	clipSegments, _ := data["clip_segments"].([]interface{})
 
 	// Process stock_clips_timestamps
 	var stockTS []interface{}
@@ -456,13 +486,18 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 		"video_name":                getStringOrEmpty(normalized, "video_name"),
 		"video_style":               videoStyle,
 		"start_clips":               startClips,
+		"intro_clips":               introClips,
 		"middle_clips":              middleClips,
 		"stock_clips":               stockClips,
 		"end_clips":                 endClips,
 		"voiceovers":                voiceovers,
+		"clip_segments":             clipSegments,
 		"start_clips_urls":          getStringOrEmpty(normalized, "start_clips_urls"),
+		"intro_clips_urls":          getStringOrEmpty(normalized, "intro_clips_urls"),
+		"intro_clip_paths":          getStringOrEmpty(normalized, "intro_clip_paths"),
 		"middle_clips_urls":         getStringOrEmpty(normalized, "middle_clips_urls"),
 		"stock_clips_urls":          getStringOrEmpty(normalized, "stock_clips_urls"),
+		"stock_clip_paths":          getStringOrEmpty(normalized, "stock_clip_paths"),
 		"end_clips_urls":            getStringOrEmpty(normalized, "end_clips_urls"),
 		"voiceovers_urls":           getStringOrEmpty(normalized, "voiceovers_urls"),
 		"background_path":           getStringOrEmpty(data, "background"),
@@ -479,6 +514,8 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 		"pre_associated_entities":   data["pre_associated_entities"],
 		"raw_entities":              data["raw_entities"],
 		"project_id":                projectID,
+		"video_mode":                getStringOrEmpty(data, "video_mode"),
+		"drive_output_folder":       getStringOrEmpty(data, "drive_output_folder", "output_directory"),
 	}
 
 	// Ensure voiceover_channel_mapping and output_video_mapping are maps
@@ -487,6 +524,9 @@ func buildSingleJob(data map[string]interface{}) (string, map[string]interface{}
 	}
 	if _, ok := slotData["output_video_mapping"].(map[string]interface{}); !ok {
 		slotData["output_video_mapping"] = map[string]interface{}{}
+	}
+	if _, ok := slotData["video_mode"].(string); !ok {
+		slotData["video_mode"] = ""
 	}
 
 	normalized["slot_data"] = slotData

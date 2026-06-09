@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -20,6 +22,14 @@ struct SceneRuntime {
     std::string image_link;
     std::vector<std::string> image_links;
     double duration_seconds{5.0};
+};
+
+struct ClipRuntime {
+    std::string text;
+    std::string clip_link;
+    std::vector<std::string> clip_links;
+    double duration_seconds{4.0};
+    std::string kind;
 };
 
 std::string readFile(const fs::path& path) {
@@ -64,6 +74,20 @@ std::string shellQuote(const std::string& s) {
 bool runCommand(const std::string& cmd) {
     int rc = std::system(cmd.c_str());
     return rc == 0;
+}
+
+std::string captureCommandOutput(const std::string& cmd) {
+    std::array<char, 4096> buffer{};
+    std::string output;
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        return {};
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        output.append(buffer.data());
+    }
+    pclose(pipe);
+    return output;
 }
 
 std::string extractJsonString(const std::string& json, const std::string& key) {
@@ -225,6 +249,29 @@ std::vector<std::string> splitTopLevelObjects(const std::string& arrayBlock) {
     return objects;
 }
 
+double extractDurationValue(const std::string& json, const std::string& key, double fallback) {
+    return extractJsonNumberValue(json, key, fallback);
+}
+
+ClipRuntime parseClipObject(const std::string& obj) {
+    ClipRuntime clip;
+    clip.text = extractJsonStringValue(obj, "text");
+    clip.clip_link = extractJsonStringValue(obj, "clip_link");
+    clip.clip_links = extractArrayStrings(obj, "clip_links");
+    clip.duration_seconds = extractDurationValue(obj, "duration_seconds", 4.0);
+    if (clip.duration_seconds <= 0.0) {
+        clip.duration_seconds = 4.0;
+    }
+    clip.kind = extractJsonStringValue(obj, "kind");
+    if (clip.clip_link.empty() && !clip.clip_links.empty()) {
+        clip.clip_link = clip.clip_links.front();
+    }
+    if (clip.clip_links.empty() && !clip.clip_link.empty()) {
+        clip.clip_links.push_back(clip.clip_link);
+    }
+    return clip;
+}
+
 std::vector<SceneRuntime> parseScenes(const std::string& requestJson) {
     std::vector<SceneRuntime> scenes;
     auto arrayBlock = extractArrayBlock(requestJson, "scenes");
@@ -251,12 +298,72 @@ std::vector<SceneRuntime> parseScenes(const std::string& requestJson) {
     return scenes;
 }
 
+std::vector<ClipRuntime> parseClipSegments(const std::string& requestJson) {
+    std::vector<ClipRuntime> clips;
+    auto arrayBlock = extractArrayBlock(requestJson, "clip_segments");
+    if (arrayBlock.empty()) {
+        arrayBlock = extractArrayBlock(requestJson, "segments");
+    }
+    if (arrayBlock.empty()) {
+        return clips;
+    }
+    for (const auto& obj : splitTopLevelObjects(arrayBlock)) {
+        clips.push_back(parseClipObject(obj));
+    }
+    return clips;
+}
+
+std::vector<std::string> parseStringListField(const std::string& requestJson, const std::string& key) {
+    auto values = extractArrayStrings(requestJson, key);
+    if (!values.empty()) {
+        return values;
+    }
+    auto raw = extractJsonStringValue(requestJson, key);
+    if (!raw.empty()) {
+        return {raw};
+    }
+    return {};
+}
+
 std::string normalizeDriveUrl(const std::string& url) {
     std::smatch match;
     if (std::regex_search(url, match, std::regex(R"(/file/d/([^/]+))"))) {
         return "https://drive.google.com/uc?export=download&id=" + match[1].str();
     }
     return url;
+}
+
+bool isDriveFolderUrl(const std::string& url) {
+    return url.find("/drive/folders/") != std::string::npos;
+}
+
+std::string resolveDriveFolderToFileUrl(const std::string& folderUrl) {
+    if (!isDriveFolderUrl(folderUrl)) {
+        return folderUrl;
+    }
+
+    const std::string html = captureCommandOutput("curl -L --silent --show-error " + shellQuote(folderUrl));
+    if (html.empty()) {
+        return {};
+    }
+
+    const std::regex fileViewRe(R"(https://drive\.google\.com/file/d/([^"/?]+))");
+    std::smatch match;
+    if (std::regex_search(html, match, fileViewRe) && match.size() > 1) {
+        return normalizeDriveUrl(match[0].str());
+    }
+
+    const std::regex fileIdRe(R"(/file/d/([^"/?]+))");
+    if (std::regex_search(html, match, fileIdRe) && match.size() > 1) {
+        return "https://drive.google.com/uc?export=download&id=" + match[1].str();
+    }
+
+    const std::regex openIdRe(R"(open\?id=([^"&]+))");
+    if (std::regex_search(html, match, openIdRe) && match.size() > 1) {
+        return "https://drive.google.com/uc?export=download&id=" + match[1].str();
+    }
+
+    return {};
 }
 
 bool copyFile(const fs::path& src, const fs::path& dst) {
@@ -284,7 +391,14 @@ bool downloadAsset(const std::string& source, const fs::path& dest) {
     if (fs::exists(source)) {
         return copyFile(source, dest);
     }
-    const auto url = normalizeDriveUrl(source);
+    std::string resolvedSource = source;
+    if (isDriveFolderUrl(source)) {
+        resolvedSource = resolveDriveFolderToFileUrl(source);
+        if (resolvedSource.empty()) {
+            return false;
+        }
+    }
+    const auto url = normalizeDriveUrl(resolvedSource);
     std::string cmd = "curl -L --fail --silent --show-error -o " + shellQuote(dest.string()) + " " + shellQuote(url);
     return runCommand(cmd);
 }
@@ -303,17 +417,47 @@ fs::path firstAvailableImage(const SceneRuntime& scene, const fs::path& workDir,
     return {};
 }
 
+fs::path firstAvailableClip(const std::vector<std::string>& candidates, const fs::path& workDir, size_t index) {
+    const auto clipPath = workDir / ("clip_" + std::to_string(index) + ".mp4");
+    for (const auto& candidate : candidates) {
+        if (trim(candidate).empty()) {
+            continue;
+        }
+        if (isDriveFolderUrl(candidate)) {
+            continue;
+        }
+        if (downloadAsset(candidate, clipPath)) {
+            return clipPath;
+        }
+    }
+    return {};
+}
+
 bool buildSceneSegment(const fs::path& imagePath, const fs::path& segmentPath, double duration) {
     std::ostringstream cmd;
     cmd << "ffmpeg -y ";
     if (!imagePath.empty() && fs::exists(imagePath)) {
         cmd << "-loop 1 -t " << duration << " -i " << shellQuote(imagePath.string())
-            << " -vf " << shellQuote("scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+            << " -vf " << shellQuote("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
             << " -c:v libx264 -pix_fmt yuv420p -r 30 " << shellQuote(segmentPath.string());
     } else {
         cmd << "-f lavfi -t " << duration
-            << " -i " << shellQuote("color=c=black:s=1280x720")
+            << " -i " << shellQuote("color=c=black:s=1920x1080")
             << " -c:v libx264 -pix_fmt yuv420p -r 30 " << shellQuote(segmentPath.string());
+    }
+    return runCommand(cmd.str());
+}
+
+bool buildVideoSegment(const fs::path& clipPath, const fs::path& segmentPath, double duration) {
+    std::ostringstream cmd;
+    cmd << "ffmpeg -y ";
+    if (!clipPath.empty() && fs::exists(clipPath)) {
+        cmd << "-i " << shellQuote(clipPath.string())
+            << " -t " << duration
+            << " -vf " << shellQuote("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+            << " -c:v libx264 -pix_fmt yuv420p -r 30 -an " << shellQuote(segmentPath.string());
+    } else {
+        return false;
     }
     return runCommand(cmd.str());
 }
@@ -368,8 +512,16 @@ int main(int argc, char** argv) {
     const auto videoName = extractJsonStringValue(requestJson, "video_name");
     const auto audioLanguage = extractJsonStringValue(requestJson, "audio_language_for_srt");
     const auto jobId = extractJsonStringValue(requestJson, "job_id");
+    const auto videoMode = trim(extractJsonStringValue(requestJson, "video_mode"));
+    const auto driveOutputFolder = trim(extractJsonStringValue(requestJson, "drive_output_folder"));
     const auto voiceoverPaths = extractArrayStrings(requestJson, "voiceover_paths");
+    const auto introClipPaths = parseStringListField(requestJson, "intro_clip_paths");
+    auto stockClipPaths = parseStringListField(requestJson, "stock_clip_paths");
+    if (stockClipPaths.empty()) {
+        stockClipPaths = parseStringListField(requestJson, "stock_clip_sources");
+    }
     const auto scenes = parseScenes(requestJson);
+    const auto clipSegments = parseClipSegments(requestJson);
 
     if (outputPathStr.empty()) {
         std::cerr << "missing output_path in request\n";
@@ -386,20 +538,80 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const bool clipMode = videoMode == "clip_stock"
+        || !clipSegments.empty()
+        || !introClipPaths.empty()
+        || !stockClipPaths.empty();
+
     std::vector<fs::path> segments;
-    segments.reserve(std::max<size_t>(1, scenes.size()));
-    for (size_t i = 0; i < std::max<size_t>(1, scenes.size()); ++i) {
-        fs::path imagePath;
-        if (i < scenes.size()) {
-            imagePath = firstAvailableImage(scenes[i], workDir, i);
+    if (clipMode) {
+        size_t segmentIndex = 0;
+        for (size_t i = 0; i < introClipPaths.size(); ++i) {
+            std::vector<std::string> candidates = {introClipPaths[i]};
+            fs::path clipPath = firstAvailableClip(candidates, workDir, segmentIndex);
+            if (clipPath.empty()) {
+                std::cerr << "failed to resolve intro clip segment " << i << "\n";
+                return 1;
+            }
+            fs::path segmentPath = workDir / ("segment_" + std::to_string(segmentIndex) + ".mp4");
+            if (!buildVideoSegment(clipPath, segmentPath, 4.0)) {
+                std::cerr << "failed to build intro clip segment " << i << "\n";
+                return 1;
+            }
+            segments.push_back(segmentPath);
+            ++segmentIndex;
         }
-        fs::path segmentPath = workDir / ("segment_" + std::to_string(i) + ".mp4");
-        const double duration = i < scenes.size() ? scenes[i].duration_seconds : 5.0;
-        if (!buildSceneSegment(imagePath, segmentPath, duration)) {
-            std::cerr << "failed to build segment " << i << "\n";
-            return 1;
+
+        for (size_t i = 0; i < clipSegments.size(); ++i) {
+            const auto& clip = clipSegments[i];
+            std::vector<std::string> candidates = clip.clip_links;
+            if (candidates.empty() && !clip.clip_link.empty()) {
+                candidates.push_back(clip.clip_link);
+            }
+            fs::path clipPath = firstAvailableClip(candidates, workDir, segmentIndex);
+            if (clipPath.empty()) {
+                std::cerr << "failed to resolve clip segment " << i << "\n";
+                return 1;
+            }
+            fs::path segmentPath = workDir / ("segment_" + std::to_string(segmentIndex) + ".mp4");
+            if (!buildVideoSegment(clipPath, segmentPath, clip.duration_seconds > 0.0 ? clip.duration_seconds : 4.0)) {
+                std::cerr << "failed to build clip segment " << i << "\n";
+                return 1;
+            }
+            segments.push_back(segmentPath);
+            ++segmentIndex;
         }
-        segments.push_back(segmentPath);
+
+        for (size_t i = 0; i < stockClipPaths.size(); ++i) {
+            std::vector<std::string> candidates = {stockClipPaths[i]};
+            fs::path clipPath = firstAvailableClip(candidates, workDir, segmentIndex);
+            if (clipPath.empty()) {
+                std::cerr << "failed to resolve stock clip segment " << i << "\n";
+                return 1;
+            }
+            fs::path segmentPath = workDir / ("segment_" + std::to_string(segmentIndex) + ".mp4");
+            if (!buildVideoSegment(clipPath, segmentPath, 5.0)) {
+                std::cerr << "failed to build stock clip segment " << i << "\n";
+                return 1;
+            }
+            segments.push_back(segmentPath);
+            ++segmentIndex;
+        }
+    } else {
+        segments.reserve(std::max<size_t>(1, scenes.size()));
+        for (size_t i = 0; i < std::max<size_t>(1, scenes.size()); ++i) {
+            fs::path imagePath;
+            if (i < scenes.size()) {
+                imagePath = firstAvailableImage(scenes[i], workDir, i);
+            }
+            fs::path segmentPath = workDir / ("segment_" + std::to_string(i) + ".mp4");
+            const double duration = i < scenes.size() ? scenes[i].duration_seconds : 5.0;
+            if (!buildSceneSegment(imagePath, segmentPath, duration)) {
+                std::cerr << "failed to build segment " << i << "\n";
+                return 1;
+            }
+            segments.push_back(segmentPath);
+        }
     }
 
     fs::path videoOnlyPath = workDir / "video_only.mp4";
@@ -421,15 +633,14 @@ int main(int argc, char** argv) {
         if (downloaded) {
             fs::path muxedOutput = workDir / "final_with_audio.mp4";
             if (!muxAudio(videoOnlyPath, audioPath, muxedOutput)) {
-                std::error_code ec;
-                fs::copy_file(videoOnlyPath, finalOutput, fs::copy_options::overwrite_existing, ec);
-            } else {
-                std::error_code ec;
-                fs::copy_file(muxedOutput, finalOutput, fs::copy_options::overwrite_existing, ec);
+                std::cerr << "failed to mux audio into final video\n";
+                return 1;
             }
-        } else {
             std::error_code ec;
-            fs::copy_file(videoOnlyPath, finalOutput, fs::copy_options::overwrite_existing, ec);
+            fs::copy_file(muxedOutput, finalOutput, fs::copy_options::overwrite_existing, ec);
+        } else {
+            std::cerr << "failed to download voiceover audio\n";
+            return 1;
         }
     } else {
         std::error_code ec;
@@ -437,6 +648,10 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "{\"success\":true,\"job_id\":\"" << jobId << "\",\"output_path\":\"" << finalOutput.string()
-              << "\",\"video_name\":\"" << videoName << "\",\"audio_language_for_srt\":\"" << audioLanguage << "\"}" << std::endl;
+              << "\",\"video_name\":\"" << videoName << "\",\"audio_language_for_srt\":\"" << audioLanguage
+              << "\",\"video_mode\":\"" << (clipMode ? "clip_stock" : "scene_image") << "\"}" << std::endl;
+    if (!driveOutputFolder.empty()) {
+        std::cerr << "drive_output_folder_hint=" << driveOutputFolder << "\n";
+    }
     return 0;
 }

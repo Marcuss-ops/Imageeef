@@ -87,6 +87,9 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 	r.Static("/assets", spaAssetsDir)
 	// Serve root-level SPA assets (favicon, etc.) individually to avoid Gin route conflicts
 	r.StaticFile("/creator_studio_app/dist/favicon.svg", spaDistDir+"/favicon.svg")
+	r.GET("/ansible_computers/guide", func(c *gin.Context) {
+		c.File(spaDistDir + "/ansible-hosts-guide.html")
+	})
 	r.GET("/favicon.ico", func(c *gin.Context) {
 		c.Data(200, "image/svg+xml; charset=utf-8", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f97316"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0f172a"/><circle cx="32" cy="32" r="18" fill="url(#g)"/><path d="M25 27h14l-7 14z" fill="#fff"/></svg>`))
 	})
@@ -281,33 +284,20 @@ func registerWorkerLifecycleRoutes(r *gin.Engine, deps *serverDeps) {
 		return
 	}
 
-	// Compatibility aliases for worker agents that still call /workers/* or /api/workers/*.
+	// Canonical worker lifecycle routes.
 	if deps.reg != nil {
 		heartbeat := workers.Heartbeat(deps.reg)
-		r.POST("/workers/heartbeat", heartbeat)
 		r.POST("/api/workers/heartbeat", heartbeat)
 	}
 
 	if deps.workerLifecycle != nil {
-		// Allow both legacy and new worker agents to register and poll commands.
-		r.POST("/workers/register", deps.workerLifecycle.RegisterCompatHandler())
+		// Canonical worker lifecycle routes.
 		r.POST("/api/workers/register", deps.workerLifecycle.RegisterCompatHandler())
-		r.POST("/api/v1/workers/register", deps.workerLifecycle.RegisterCompatHandler())
-		r.POST("/workers/unregister", deps.workerLifecycle.UnregisterCompatHandler())
 		r.POST("/api/workers/unregister", deps.workerLifecycle.UnregisterCompatHandler())
-		r.POST("/api/v1/workers/unregister", deps.workerLifecycle.UnregisterCompatHandler())
-		r.GET("/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
 		r.GET("/api/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
-		r.GET("/api/v1/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
-		r.POST("/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
 		r.POST("/api/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
-		r.POST("/api/v1/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
-		r.POST("/workers/commands/ack", deps.workerLifecycle.AckCommandCompatHandler())
 		r.POST("/api/workers/commands/ack", deps.workerLifecycle.AckCommandCompatHandler())
-		r.POST("/api/v1/workers/commands/ack", deps.workerLifecycle.AckCommandCompatHandler())
-		r.POST("/workers/status", deps.workerLifecycle.UpdateStatusCompatHandler())
 		r.POST("/api/workers/status", deps.workerLifecycle.UpdateStatusCompatHandler())
-		r.POST("/api/v1/workers/status", deps.workerLifecycle.UpdateStatusCompatHandler())
 	}
 
 	if deps.jobAPI != nil {
