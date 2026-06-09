@@ -145,9 +145,6 @@ func (w *Worker) jobLoop(ctx context.Context) {
 		case <-w.stopChan:
 			w.logger.Debug("Job loop exiting (stop signal)")
 			return
-		case cmd := <-w.commandChan:
-			// Process command from command loop
-			w.processCommand(ctx, cmd)
 		case <-ticker.C:
 			// Only poll if idle and not stopped and not in drain mode
 			if w.Status() != StatusIdle || w.IsStopped() || w.drainMode.Load() {
@@ -265,20 +262,11 @@ func (w *Worker) executeJob(ctx context.Context, job *api.Job) {
 		Output:    make(map[string]interface{}),
 	}
 
-	// Phase 1: Apply GodCPUWorkflowEnabled for path selection
 	var output map[string]interface{}
 	var execErr error
 
-	if w.config.GodCPUWorkflowEnabled {
-		w.logger.Info("[GOD_WORKFLOW] Using GOD CPU workflow path for job %s (cpu_pool=%d)",
-			job.JobID, w.config.CPUWorkerPool)
-		// GOD workflow: uses CPU worker pool for parallel processing
-		output, execErr = w.runGODWorkflowJob(ctx, job)
-	} else {
-		w.logger.Info("[LEGACY_WORKFLOW] Using legacy workflow path for job %s", job.JobID)
-		// Legacy workflow: single-threaded execution
-		output, execErr = w.runJobTask(ctx, job)
-	}
+	w.logger.Info("[JOB] Executing job %s via runJobTask", job.JobID)
+	output, execErr = w.runJobTask(ctx, job)
 
 	if execErr == nil {
 		// Ensure the master receives the actual rendered file, not a container-local path.
@@ -527,54 +515,9 @@ func (w *Worker) runJobTask(ctx context.Context, job *api.Job) (map[string]inter
 	}
 }
 
-// runGODWorkflowJob executes a job using the GOD CPU workflow with stage/chunk execution.
-// This uses the StageExecutor for stage-aware parallel processing with chunk-level retry.
-func (w *Worker) runGODWorkflowJob(ctx context.Context, job *api.Job) (map[string]interface{}, error) {
-	w.logger.Info("[GOD_WORKFLOW] Starting GOD CPU workflow: id=%s type=%s, cpu_pool=%d",
-		job.JobID, job.JobType, w.config.CPUWorkerPool)
 
-	jobTimeout := 30 * time.Minute
-	if job.TimeoutSecs > 0 {
-		jobTimeout = time.Duration(job.TimeoutSecs) * time.Second
-	}
-	jobCtx, cancel := context.WithTimeout(ctx, jobTimeout)
-	defer cancel()
 
-	// Register stage executors
-	w.registerStageExecutors(job)
 
-	// Execute all stages via the stage executor
-	output, err := w.stageExecutor.ExecuteStages(jobCtx, job.JobID, job.Parameters)
-	if err != nil {
-		return nil, fmt.Errorf("GOD workflow execution failed: %w", err)
-	}
-
-	stats := w.stageExecutor.Stats()
-	w.logger.Info("[GOD_WORKFLOW] Job %s completed: total_chunks=%d, failed=%d, retried=%d, success_rate=%.1f%%",
-		job.JobID, stats.TotalChunks, stats.FailedChunks, stats.RetriedChunks, stats.SuccessRate)
-
-	return output, nil
-}
-
-// registerStageExecutors registers all stage executors for the GOD workflow.
-func (w *Worker) registerStageExecutors(job *api.Job) {
-	w.stageExecutor.RegisterExecutor(StageProbe, func(ctx context.Context, stage StageType, chunkID string, params map[string]interface{}) (map[string]interface{}, error) {
-		w.logger.Info("[GOD_WORKFLOW][%s] Executing probe stage chunk=%s", stage, chunkID)
-		return map[string]interface{}{"probed": true, "chunk_id": chunkID}, nil
-	})
-
-	w.stageExecutor.RegisterExecutor(StageAudio, func(ctx context.Context, stage StageType, chunkID string, params map[string]interface{}) (map[string]interface{}, error) {
-		return w.runAudioJob(ctx, job)
-	})
-
-	w.stageExecutor.RegisterExecutor(StageVideo, func(ctx context.Context, stage StageType, chunkID string, params map[string]interface{}) (map[string]interface{}, error) {
-		return w.runVideoJob(ctx, job)
-	})
-
-	w.stageExecutor.RegisterExecutor(StageConcat, func(ctx context.Context, stage StageType, chunkID string, params map[string]interface{}) (map[string]interface{}, error) {
-		return w.runRenderJob(ctx, job)
-	})
-}
 
 // executeWorkflowJob is a shared implementation for render/video/audio jobs.
 // It extracts parameters, creates the workflow, and executes it.

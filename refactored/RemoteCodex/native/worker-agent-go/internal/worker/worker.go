@@ -19,8 +19,7 @@ func (w *Worker) Start(ctx context.Context) error {
 
 	// Phase 1: Start concurrency limiter wait queue processor
 	w.concurrencyLimiter.Start(ctx)
-	w.logger.Info("[CONCURRENCY] Started with max_active_jobs=%d, cpu_worker_pool=%d",
-		w.config.MaxActiveJobs, w.config.CPUWorkerPool)
+	w.logger.Info("[CONCURRENCY] Started with max_active_jobs=%d", w.config.MaxActiveJobs)
 
 	// Register with master
 	if err := w.register(ctx); err != nil {

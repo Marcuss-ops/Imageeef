@@ -29,12 +29,8 @@ type WorkerConfig struct {
 	LogLevel   string  `json:"log_level"`   // Log level: debug, info, warn, error
 	APIMode    APIMode `json:"api_mode"`    // API mode: new_api (default)
 
-	// Phase 1: GOD Workflow feature flags
-	GodCPUWorkflowEnabled bool `json:"god_cpu_workflow_enabled"` // Enable GOD CPU workflow path (Phase 1)
-
-	// Phase 1: Worker policy
+	// Worker policy
 	MaxActiveJobs  int `json:"max_active_jobs"` // Maximum concurrent active jobs (default: 1)
-	CPUWorkerPool  int `json:"cpu_worker_pool"` // CPU worker pool size (default: 8)
 	PrometheusPort int `json:"prometheus_port"` // Prometheus metrics port (default: 9090)
 
 }
@@ -109,10 +105,7 @@ func DefaultConfig(workDir string) *WorkerConfig {
 		LogLevel:   "info",
 		APIMode:    APIModeNewAPI, // Default to new API
 
-		// Phase 1: GOD Workflow defaults
-		GodCPUWorkflowEnabled: false, // Disabled by default, enable via config
-		MaxActiveJobs:         1,     // 1 main job per VPS
-		CPUWorkerPool:         8,     // 8-core concurrency
+		MaxActiveJobs: 1, // 1 main job per VPS
 	}
 }
 
