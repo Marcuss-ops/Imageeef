@@ -102,10 +102,9 @@ func RegisterV1Routes(r *gin.Engine, cfg *config.Config, fileQ *queue.FileQueue,
 			v1Admin.POST("/worker/send_command", workerUpdateHandler.SendCommandHandler())
 			v1Admin.GET("/workers/update_status", workerUpdateHandler.GetUpdateStatusHandler())
 		}
-		if workerLifecycle != nil {
-			v1Admin.POST("/workers/revoke", workerLifecycle.RevokeWorkerHandler())
-			v1Admin.POST("/workers/drain", workerLifecycle.DrainWorkerHandler())
-		}
+		// NOTE: /workers/revoke and /workers/drain are NOT registered here to avoid
+		// a Gin radix tree conflict with the wildcard route /workers/:id/logs.
+		// They are registered directly in router.go under /worker/revoke and /worker/drain.
 
 		// Bundle Explorer - List files in bundle
 		if workerUpdateHandler != nil {

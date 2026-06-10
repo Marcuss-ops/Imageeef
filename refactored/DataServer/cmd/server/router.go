@@ -295,6 +295,8 @@ func registerWorkerLifecycleRoutes(r *gin.Engine, cfg *config.Config, deps *serv
 		r.POST("/api/workers/status", deps.workerLifecycle.UpdateStatusCompatHandler())
 
 		// Worker management routes (protected by admin token).
+		// NOTE: Routes are registered under /worker/* instead of /api/v1/workers/*
+		// to avoid a Gin radix tree conflict with the wildcard route /api/v1/workers/:id/logs.
 		workerAdmin := r.Group("/worker")
 		workerAdmin.Use(adminAuthMiddleware(cfg))
 		workerAdmin.POST("/revoke", deps.workerLifecycle.RevokeWorkerHandler())
