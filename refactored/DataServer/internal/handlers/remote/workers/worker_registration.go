@@ -664,14 +664,15 @@ func (wl *WorkerLifecycle) RevokeWorkerHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Revoke worker
+		ctx := c.Request.Context()
+
+		// Revoke in memory registry (blocks future heartbeats)
+		wl.reg.RevokeWorker(ctx, body.WorkerID)
+
+		// Also revoke in persisted file registry
 		if wl.persistedReg != nil {
 			wl.persistedReg.RevokeWorker(body.WorkerID)
 		}
-
-		// Also unregister from memory
-		ctx := c.Request.Context()
-		wl.reg.UnregisterWorker(ctx, body.WorkerID)
 
 		log.Printf("🚫 Worker revoked: %s", body.WorkerID[:min(16, len(body.WorkerID))]+"...")
 
@@ -699,7 +700,10 @@ func (wl *WorkerLifecycle) UnrevokeWorkerHandler() gin.HandlerFunc {
 			return
 		}
 
-		// Unrevoke worker
+		// Unrevoke in memory registry (allows future heartbeats)
+		wl.reg.UnrevokeWorker(body.WorkerID)
+
+		// Also unrevoke in persisted file registry
 		if wl.persistedReg != nil {
 			wl.persistedReg.UnrevokeWorker(body.WorkerID)
 		}

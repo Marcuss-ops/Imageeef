@@ -48,16 +48,25 @@ type Registry struct {
 	mu       sync.RWMutex
 	redis    *redis.Client
 	inMem    map[string]WorkerInfo
+	revoked  map[string]bool
 	useRedis bool
 	dbStore  *store.SQLiteStore
 }
 
 func New(rdb *redis.Client, useRedis bool, dbStore *store.SQLiteStore) *Registry {
-	return &Registry{redis: rdb, inMem: make(map[string]WorkerInfo), useRedis: useRedis, dbStore: dbStore}
+	return &Registry{redis: rdb, inMem: make(map[string]WorkerInfo), revoked: make(map[string]bool), useRedis: useRedis, dbStore: dbStore}
 }
 
 func (r *Registry) Heartbeat(ctx context.Context, workerID, workerName, status, currentJob string, extra map[string]interface{}) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Reject heartbeat for revoked workers
+	r.mu.RLock()
+	if r.revoked[workerID] {
+		r.mu.RUnlock()
+		return fmt.Errorf("worker %s is revoked", workerID)
+	}
+	r.mu.RUnlock()
 
 	// Preserve existing state unless explicitly updated by heartbeat payload.
 	r.mu.Lock()
@@ -199,10 +208,14 @@ func (r *Registry) List(ctx context.Context) []WorkerInfo {
 		var out []WorkerInfo
 		iter := r.redis.Scan(ctx, 0, workerPrefix+"*", 100).Iterator()
 		for iter.Next(ctx) {
+			workerID := strings.TrimPrefix(iter.Val(), workerPrefix)
+			if r.IsRevoked(workerID) {
+				continue
+			}
 			m, _ := r.redis.HGetAll(ctx, iter.Val()).Result()
 			if len(m) > 0 {
 				info := WorkerInfo{
-					WorkerID:   m["worker_id"],
+					WorkerID:   workerID,
 					WorkerName: m["worker_name"],
 					Status:     m["status"],
 					LastHB:     m["last_heartbeat"],
@@ -224,6 +237,9 @@ func (r *Registry) List(ctx context.Context) []WorkerInfo {
 	defer r.mu.RUnlock()
 	list := make([]WorkerInfo, 0, len(r.inMem))
 	for _, v := range r.inMem {
+		if r.revoked[v.WorkerID] {
+			continue
+		}
 		list = append(list, v)
 	}
 	return list
@@ -344,6 +360,43 @@ func (r *Registry) UnregisterWorker(ctx context.Context, workerID string) error 
 	return nil
 }
 
+// IsRevoked checks if a worker has been revoked
+func (r *Registry) IsRevoked(workerID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.revoked[workerID]
+}
+
+// RevokeWorker marks a worker as revoked and removes it from the active set
+func (r *Registry) RevokeWorker(ctx context.Context, workerID string) {
+	r.mu.Lock()
+	r.revoked[workerID] = true
+	delete(r.inMem, workerID)
+	r.mu.Unlock()
+
+	if r.useRedis && r.redis != nil {
+		_ = r.redis.Del(ctx, workerPrefix+workerID).Err()
+	}
+}
+
+// UnrevokeWorker removes a worker from the revoked list
+func (r *Registry) UnrevokeWorker(workerID string) {
+	r.mu.Lock()
+	delete(r.revoked, workerID)
+	r.mu.Unlock()
+}
+
+// LoadRevoked loads a set of revoked worker IDs into the in-memory revoked set.
+// This is used during bootstrap to persist revocation state across restarts.
+func (r *Registry) LoadRevoked(ids []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range ids {
+		r.revoked[id] = true
+		delete(r.inMem, id)
+	}
+}
+
 // UpdateWorker updates specific fields of a worker
 func (r *Registry) UpdateWorker(ctx context.Context, workerID string, updates map[string]interface{}) error {
 	r.mu.Lock()
@@ -454,6 +507,9 @@ func (r *Registry) GetActiveWorkers(ctx context.Context, timeout time.Duration) 
 	var result []WorkerInfo
 
 	for _, w := range r.inMem {
+		if r.revoked[w.WorkerID] {
+			continue
+		}
 		if w.LastHB != "" {
 			t, err := time.Parse(time.RFC3339, w.LastHB)
 			if err == nil && now.Sub(t.UTC()) < timeout {
@@ -471,6 +527,9 @@ func (r *Registry) GetSchedulableWorkers(ctx context.Context) []WorkerInfo {
 
 	var result []WorkerInfo
 	for _, w := range r.inMem {
+		if r.revoked[w.WorkerID] {
+			continue
+		}
 		if w.Schedulable && !w.Drain && w.Status != "offline" {
 			result = append(result, w)
 		}
@@ -656,6 +715,17 @@ func (wr *WorkerRegistry) ListWorkers() []WorkerInfo {
 		list = append(list, w)
 	}
 	return list
+}
+
+// ListRevoked returns the list of revoked worker IDs
+func (wr *WorkerRegistry) ListRevoked() []string {
+	wr.mu.RLock()
+	defer wr.mu.RUnlock()
+	ids := make([]string, 0, len(wr.revoked))
+	for id := range wr.revoked {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // GenerateWorkerID generates a unique worker ID

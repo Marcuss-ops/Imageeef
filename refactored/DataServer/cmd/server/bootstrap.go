@@ -129,6 +129,14 @@ func buildServerDeps(cfg *config.Config) (*serverDeps, error) {
 
 	reg := workersreg.New(nil, false, sqliteStore)
 	persistedReg := workersreg.NewWorkerRegistry(cfg.DataDir, sqliteStore)
+
+	// Load revoked workers from persisted file into in-memory registry
+	// so that revoked workers cannot heartbeat their way back in after a restart.
+	if revokedIDs := persistedReg.ListRevoked(); len(revokedIDs) > 0 {
+		reg.LoadRevoked(revokedIDs)
+		log.Printf("🔒 Loaded %d revoked workers from %s", len(revokedIDs), cfg.DataDir)
+	}
+
 	jobsRepo := store.NewSQLiteJobsRepository(sqliteStore)
 	workersRepo := store.NewSQLiteWorkersRepository(sqliteStore)
 	jobService := jobservice.NewService(cfg, fileQ, nil, jobsRepo, nil, reg)
