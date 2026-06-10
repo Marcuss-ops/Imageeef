@@ -1,7 +1,6 @@
 package darkeditor
 
 import (
-	"github.com/gin-gonic/gin"
 	"velox-server/internal/store"
 )
 
@@ -64,16 +63,4 @@ func (h *Handler) SetLogger(l *Logger) {
 // GetLogger returns the logger
 func (h *Handler) GetLogger() *Logger {
 	return h.logger
-}
-
-// IntegrationHandlers holds the integration handlers for Dark Editor
-type IntegrationHandlers struct {
-	BackgroundRemoval *BackgroundRemovalHandler
-	YouTube           *YouTubeIntegrationHandler
-	Drive             *DriveIntegrationHandler
-}
-
-// RegisterAPIRoutes registers all Dark Editor API routes
-func RegisterAPIRoutes(r *gin.Engine, h *Handler) {
-	RegisterAPIRoutesWithIntegrations(r, h, nil)
 }

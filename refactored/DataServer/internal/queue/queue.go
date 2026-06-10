@@ -15,19 +15,6 @@ const (
 	PriorityUrgent int = 100
 )
 
-// ensureProjectionRenderPlanVersion keeps queue projections aligned with the
-// canonical render-plan contract version used by the worker and master APIs.
-func ensureProjectionRenderPlanVersion(payload map[string]any) map[string]any {
-	if payload == nil {
-		payload = make(map[string]any)
-	}
-	if v, _ := payload["render_plan_version"].(string); v != "" {
-		return payload
-	}
-	payload["render_plan_version"] = "v1"
-	return payload
-}
-
 // PriorityJob wraps a Job with priority information
 type PriorityJob struct {
 	*Job

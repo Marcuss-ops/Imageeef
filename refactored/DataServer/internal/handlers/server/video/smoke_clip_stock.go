@@ -89,9 +89,8 @@ func CreateSmokeClipStock(cfg *config.Config, q *queue.FileQueue) gin.HandlerFun
 			"run_id":                 jobRunID,
 			"correlation_id":         correlationID,
 			"job_type":               "process_video",
-			"version":                "v1",
-			"render_plan_version":    "v1",
-			"created_at":             ensureRFC3339(firstString(body, "created_at"), now),
+			"version":       "v1",
+			"created_at":    ensureRFC3339(firstString(body, "created_at"), now),
 			"updated_at":             ensureRFC3339(firstString(body, "updated_at"), now),
 			"video_name":             videoName,
 			"title":                  videoName,
@@ -117,8 +116,7 @@ func CreateSmokeClipStock(cfg *config.Config, q *queue.FileQueue) gin.HandlerFun
 		}
 
 		normalized["parameters"] = map[string]interface{}{
-			"version":                "v1",
-			"render_plan_version":    "v1",
+			"version": "v1",
 			"job_id":                 jobID,
 			"job_run_id":             jobRunID,
 			"run_id":                 jobRunID,

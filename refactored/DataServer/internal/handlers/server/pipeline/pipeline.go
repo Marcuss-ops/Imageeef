@@ -168,7 +168,6 @@ func buildSceneVideoPayloadFromPipelineResult(result map[string]interface{}) (ma
 		"youtube_group":          firstStringFromMap(flat, "youtube_group"),
 		"audio_language_for_srt": firstStringFromMap(flat, "audio_language_for_srt", "audio_lang"),
 		"job_type":               "process_video",
-		"render_plan_version":    "v1",
 		"submitted_via":          "pipeline_generate_with_images",
 		"source":                 "pipeline_generate_with_images",
 		"priority":               1,

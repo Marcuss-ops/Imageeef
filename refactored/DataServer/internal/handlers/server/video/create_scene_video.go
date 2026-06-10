@@ -180,10 +180,8 @@ func normalizeSceneVideoPayload(payload map[string]interface{}) (map[string]inte
 	normalized["source"] = "scene_video_api"
 	normalized["job_fingerprint"] = jobFingerprint
 	normalized["version"] = "v1"
-	normalized["render_plan_version"] = "v1"
 	normalized["parameters"] = map[string]interface{}{
-		"version":             "v1",
-		"render_plan_version": "v1",
+		"version": "v1",
 		"job_id":              jobID,
 		"job_run_id":          jobRunID,
 		"run_id":              jobRunID,

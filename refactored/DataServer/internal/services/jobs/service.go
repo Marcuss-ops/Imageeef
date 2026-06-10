@@ -37,19 +37,6 @@ type ClaimResult struct {
 	Reason  string
 }
 
-func ensureRenderPlanContract(payload map[string]interface{}) map[string]interface{} {
-	if payload == nil {
-		payload = make(map[string]interface{})
-	}
-
-	if v, _ := payload["render_plan_version"].(string); strings.TrimSpace(v) != "" {
-		return payload
-	}
-
-	payload["render_plan_version"] = "v1"
-	return payload
-}
-
 type SubmitResultRequest struct {
 	JobID    string
 	WorkerID string
@@ -148,7 +135,6 @@ func (s *Service) ClaimNextJob(ctx context.Context, req ClaimRequest) (*ClaimRes
 	if payload == nil {
 		payload = make(map[string]interface{})
 	}
-	payload = ensureRenderPlanContract(payload)
 	payload["job_id"] = jobID
 	payload["id"] = jobID
 
@@ -287,7 +273,6 @@ func (s *Service) GetJob(ctx context.Context, jobID string) (map[string]interfac
 			}
 		}
 	}
-	result = ensureRenderPlanContract(result)
 	s.enrichJobWithProcessingLogs(ctx, result, jobID)
 
 	return result, true, nil

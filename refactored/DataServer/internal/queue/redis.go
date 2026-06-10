@@ -46,7 +46,6 @@ func New(cfg *config.Config) (*Queue, error) {
 }
 
 func (q *Queue) SubmitJob(ctx context.Context, jobID string, payload map[string]interface{}) error {
-	payload = ensureProjectionRenderPlanVersion(payload)
 	payloadJSON, _ := json.Marshal(payload)
 	key := JobKey(jobID)
 	pipe := q.client.Pipeline()
@@ -79,7 +78,7 @@ func (q *Queue) GetJobPayload(ctx context.Context, jobID string) (map[string]int
 	if p := m["payload"]; p != "" {
 		_ = json.Unmarshal([]byte(p), &payload)
 	}
-	return ensureProjectionRenderPlanVersion(payload), nil
+	return payload, nil
 }
 
 func (q *Queue) GetJobAttempt(ctx context.Context, jobID string) (int, error) {
@@ -181,8 +180,6 @@ func (q *Queue) GetAllJobs(ctx context.Context) (map[string]*Job, error) {
 		if m["payload"] != "" {
 			_ = json.Unmarshal([]byte(m["payload"]), &job.Payload)
 		}
-		job.Payload = ensureProjectionRenderPlanVersion(job.Payload)
-
 		if v, ok := m["attempt"]; ok {
 			n, _ := strconv.Atoi(v)
 			job.RetryCount = n

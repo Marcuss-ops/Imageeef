@@ -11,7 +11,6 @@ import (
 
 // MapToJob converts a map[string]any to a Job struct
 func MapToJob(m map[string]any) *Job {
-	m = renderPlanVersion(m)
 	job := &Job{
 		Payload: m,
 	}
@@ -156,8 +155,6 @@ func PersistJob(job *Job, dbStore *store.SQLiteStore) error {
 			m[k] = v
 		}
 	}
-	m = renderPlanVersion(m)
-
 	// Overwrite with struct fields
 	m["job_id"] = job.JobID
 	m["status"] = string(job.Status)
