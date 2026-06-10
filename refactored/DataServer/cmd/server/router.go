@@ -104,7 +104,7 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 	registerDriveRoutes(r, cfg, deps)
 	registerYouTubeRoutes(r, cfg, deps)
 
-	registerWorkerLifecycleRoutes(r, deps)
+	registerWorkerLifecycleRoutes(r, cfg, deps)
 
 	initCachesAndManagers(r, cfg, deps)
 	serveSPAHandler := registerStaticAndSPA(r, cfg)
@@ -274,25 +274,39 @@ func registerYouTubeRoutes(r *gin.Engine, cfg *config.Config, deps *serverDeps) 
 	}
 }
 
-func registerWorkerLifecycleRoutes(r *gin.Engine, deps *serverDeps) {
+func registerWorkerLifecycleRoutes(r *gin.Engine, cfg *config.Config, deps *serverDeps) {
 	if deps == nil {
 		return
 	}
 
-	// Canonical worker lifecycle routes.
+	// Canonical worker lifecycle routes (authenticated via worker token).
 	if deps.reg != nil {
 		heartbeat := workers.Heartbeat(deps.reg)
 		r.POST("/api/workers/heartbeat", heartbeat)
 	}
 
 	if deps.workerLifecycle != nil {
-		// Canonical worker lifecycle routes.
+		// Canonical worker lifecycle routes (token-authenticated in handler).
 		r.POST("/api/workers/register", deps.workerLifecycle.RegisterCompatHandler())
 		r.POST("/api/workers/unregister", deps.workerLifecycle.UnregisterCompatHandler())
 		r.GET("/api/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
 		r.POST("/api/workers/commands", deps.workerLifecycle.GetCommandsCompatHandler())
 		r.POST("/api/workers/commands/ack", deps.workerLifecycle.AckCommandCompatHandler())
 		r.POST("/api/workers/status", deps.workerLifecycle.UpdateStatusCompatHandler())
+
+		// Worker management routes (protected by admin token).
+		workerAdmin := r.Group("/worker")
+		workerAdmin.Use(adminAuthMiddleware(cfg))
+		workerAdmin.POST("/revoke", deps.workerLifecycle.RevokeWorkerHandler())
+		workerAdmin.POST("/unrevoke", deps.workerLifecycle.UnrevokeWorkerHandler())
+		workerAdmin.POST("/drain", deps.workerLifecycle.DrainWorkerHandler())
+		workerAdmin.POST("/restart", deps.workerLifecycle.RestartWorkerHandler())
+		workerAdmin.POST("/request_update", deps.workerLifecycle.RequestUpdateHandler())
+
+		// Worker-poller endpoints (authenticated via worker token in handler).
+		r.GET("/worker/command", deps.workerLifecycle.WorkerCommandHandler())
+		r.POST("/worker/command", deps.workerLifecycle.WorkerCommandHandler())
+		r.POST("/worker/command_ack", deps.workerLifecycle.WorkerCommandAckHandler())
 	}
 
 	if deps.jobAPI != nil {
