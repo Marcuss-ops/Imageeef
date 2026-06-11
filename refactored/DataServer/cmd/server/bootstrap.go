@@ -144,6 +144,12 @@ func buildServerDeps(cfg *config.Config) (*serverDeps, error) {
 	jobSubmitHandler := jobapi.NewJobSubmissionHandler(cfg, fileQ)
 	workerLifecycle := workersapi.NewWorkerLifecycle(cfg, reg, persistedReg, cfg.DataDir)
 
+	// ── Worker Update Handler (bundle download, manifest, etc.) ─────
+	cmdMgr := workersreg.NewCommandManager()
+	updateMgr := workersreg.NewUpdateManager()
+	tokenMgr := workersreg.NewTokenManager()
+	workerUpdateHandler := workersapi.NewWorkerUpdateHandler(cfg, reg, persistedReg, cmdMgr, updateMgr, tokenMgr, cfg.DataDir)
+
 	// ── Ansible (playbooks per worker remoti) ───────────────────────
 	var ansibleHandlers *remoteansible.AnsibleHandlers
 	if err := os.MkdirAll(cfg.PlaybookDir, 0755); err != nil {
@@ -168,16 +174,17 @@ func buildServerDeps(cfg *config.Config) (*serverDeps, error) {
 	}
 
 	return &serverDeps{
-		paths:            &serverPaths{dataDir: cfg.DataDir},
-		fileQ:            fileQ,
-		reg:              reg,
-		persistedReg:     persistedReg,
-		jobAPI:           jobAPI,
-		jobSubmitHandler: jobSubmitHandler,
-		workersRepo:      workersRepo,
-		sqliteStore:      sqliteStore,
-		workerLifecycle:  workerLifecycle,
-		ansibleHandlers:  ansibleHandlers,
+		paths:               &serverPaths{dataDir: cfg.DataDir},
+		fileQ:               fileQ,
+		reg:                 reg,
+		persistedReg:        persistedReg,
+		jobAPI:              jobAPI,
+		jobSubmitHandler:    jobSubmitHandler,
+		workersRepo:         workersRepo,
+		sqliteStore:         sqliteStore,
+		workerUpdateHandler: workerUpdateHandler,
+		workerLifecycle:     workerLifecycle,
+		ansibleHandlers:     ansibleHandlers,
 	}, nil
 }
 
