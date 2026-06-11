@@ -1,7 +1,6 @@
 package analytics
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,13 +14,11 @@ import (
 	"velox-server/internal/store"
 )
 
-// DashboardHandler holds dependencies for dashboard handlers
 type DashboardHandler struct {
 	dataDir      string
 	analyticsSvc analyticsService.AnalyticsService
 }
 
-// NewDashboardHandler creates a new dashboard handler with injected dependencies
 func NewDashboardHandler(dataDir string, svc analyticsService.AnalyticsService) *DashboardHandler {
 	return &DashboardHandler{
 		dataDir:      dataDir,
@@ -29,10 +26,7 @@ func NewDashboardHandler(dataDir string, svc analyticsService.AnalyticsService) 
 	}
 }
 
-// DashboardSummary returns a comprehensive summary for the main dashboard
-// Route: GET /api/v1/dashboard/summary
 func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
-	// Get job counts from service
 	jobCounts := make(map[string]int64)
 	if h.analyticsSvc != nil {
 		if counts, err := h.analyticsSvc.GetJobCounts(c.Request.Context()); err == nil {
@@ -40,7 +34,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 		}
 	}
 
-	// Get analytics summary
 	var analyticsSummary map[string]any
 	if h.analyticsSvc != nil {
 		if data, err := h.analyticsSvc.GetAnalyticsTotals("30"); err == nil {
@@ -48,7 +41,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 		}
 	}
 
-	// Get realtime data
 	var realtimeData map[string]any
 	if h.analyticsSvc != nil {
 		if data, err := h.analyticsSvc.GetAnalyticsCache("realtime"); err == nil {
@@ -56,7 +48,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 		}
 	}
 
-	// Build response
 	response := gin.H{
 		"ok": true,
 		"jobs": gin.H{
@@ -79,7 +70,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 
-	// Merge analytics data
 	if analyticsSummary != nil {
 		if views, ok := analyticsSummary["views"]; ok {
 			response["analytics"].(gin.H)["total_views"] = views
@@ -95,7 +85,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 		}
 	}
 
-	// Merge realtime data
 	if realtimeData != nil {
 		if views24h, ok := realtimeData["total_views_24h"]; ok {
 			response["realtime"].(gin.H)["views_24h"] = views24h
@@ -108,8 +97,6 @@ func (h *DashboardHandler) DashboardSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// DashboardFinance returns financial analytics for the finance dashboard
-// Route: GET /api/v1/dashboard/finance
 func (h *DashboardHandler) DashboardFinance(c *gin.Context) {
 	period := c.DefaultQuery("period", "30")
 
@@ -127,12 +114,10 @@ func (h *DashboardHandler) DashboardFinance(c *gin.Context) {
 		data = make(map[string]any)
 	}
 
-	// Extract financial data
 	totals, _ := data["totals"].(map[string]any)
 	channels, _ := data["channels"].([]any)
 	dailyStats, _ := data["daily_stats"].([]any)
 
-	// Calculate totals
 	totalRevenue := 0.0
 	totalViews := 0
 	if totals != nil {
@@ -144,7 +129,6 @@ func (h *DashboardHandler) DashboardFinance(c *gin.Context) {
 		}
 	}
 
-	// Sort channels by revenue
 	type ChannelRevenue struct {
 		Name    string  `json:"name"`
 		Revenue float64 `json:"revenue"`
@@ -170,12 +154,10 @@ func (h *DashboardHandler) DashboardFinance(c *gin.Context) {
 		return channelRevenues[i].Revenue > channelRevenues[j].Revenue
 	})
 
-	// Limit to top 10
 	if len(channelRevenues) > 10 {
 		channelRevenues = channelRevenues[:10]
 	}
 
-	// Build daily revenue chart
 	chartData := make([]gin.H, 0)
 	if dailyStats != nil {
 		for _, ds := range dailyStats {
@@ -205,8 +187,6 @@ func (h *DashboardHandler) DashboardFinance(c *gin.Context) {
 	})
 }
 
-// DashboardPerformance returns performance metrics for video performance dashboard
-// Route: GET /api/v1/dashboard/performance
 func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 	limit := 10
 	if l := c.Query("limit"); l != "" {
@@ -215,7 +195,6 @@ func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 		}
 	}
 
-	// Get top videos
 	var topVideos []store.VideoStat
 	if h.analyticsSvc != nil {
 		if videos, err := h.analyticsSvc.GetTopVideos(limit, "30d"); err == nil {
@@ -223,7 +202,6 @@ func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 		}
 	}
 
-	// Get top channels
 	var topChannels []store.ChannelStat
 	if h.analyticsSvc != nil {
 		if channels, err := h.analyticsSvc.GetTopChannels(limit, "30d"); err == nil {
@@ -231,7 +209,6 @@ func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 		}
 	}
 
-	// Get realtime metrics
 	var realtimeViews map[string]any
 	if h.analyticsSvc != nil {
 		if data, err := h.analyticsSvc.GetAnalyticsCache("realtime"); err == nil {
@@ -239,7 +216,6 @@ func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 		}
 	}
 
-	// Calculate averages
 	avgViews := 0
 	if len(topVideos) > 0 {
 		total := 0
@@ -268,8 +244,6 @@ func (h *DashboardHandler) DashboardPerformance(c *gin.Context) {
 	})
 }
 
-// DashboardRealtime returns realtime analytics data
-// Route: GET /api/v1/dashboard/realtime
 func (h *DashboardHandler) DashboardRealtime(c *gin.Context) {
 	var data map[string]any
 	if h.analyticsSvc != nil {
@@ -280,12 +254,10 @@ func (h *DashboardHandler) DashboardRealtime(c *gin.Context) {
 		data = make(map[string]any)
 	}
 
-	// Ensure chart_data exists
 	if _, ok := data["chart_data"]; !ok {
 		data["chart_data"] = generateEstimatedChartData()
 	}
 
-	// Ensure top_videos exists
 	if _, ok := data["top_videos"]; !ok {
 		data["top_videos"] = []any{}
 	}
@@ -297,8 +269,6 @@ func (h *DashboardHandler) DashboardRealtime(c *gin.Context) {
 	})
 }
 
-// DashboardChannels returns channel-level analytics
-// Route: GET /api/v1/dashboard/channels
 func (h *DashboardHandler) DashboardChannels(c *gin.Context) {
 	limit := 20
 	if l := c.Query("limit"); l != "" {
@@ -314,7 +284,6 @@ func (h *DashboardHandler) DashboardChannels(c *gin.Context) {
 		channels, _ = h.analyticsSvc.GetTopChannels(limit, period)
 	}
 
-	// Count auth errors
 	authErrors := 0
 	for _, ch := range channels {
 		if ch.AuthError {
@@ -334,8 +303,6 @@ func (h *DashboardHandler) DashboardChannels(c *gin.Context) {
 	})
 }
 
-// DashboardGroups returns group-level analytics (channels aggregated by group)
-// Route: GET /api/v1/dashboard/groups
 func (h *DashboardHandler) DashboardGroups(c *gin.Context) {
 	var data map[string]any
 	if h.analyticsSvc != nil {
@@ -361,7 +328,6 @@ func (h *DashboardHandler) DashboardGroups(c *gin.Context) {
 		name := asStr(chMap["name"])
 		group := "Ungrouped"
 
-		// Try to extract group from name (format: "Channel Name - Group")
 		if idx := strings.LastIndex(name, " - "); idx > 0 {
 			group = strings.TrimSpace(name[idx+3:])
 		} else if idx := strings.LastIndex(name, " "); idx > 0 {
@@ -381,7 +347,6 @@ func (h *DashboardHandler) DashboardGroups(c *gin.Context) {
 		groupMap[group].Revenue += asFloatFromAny(chMap["revenue"])
 	}
 
-	// Convert to sorted list
 	type GroupStat struct {
 		GroupName        string  `json:"group_name"`
 		TotalViews       int     `json:"total_views"`
@@ -407,12 +372,10 @@ func (h *DashboardHandler) DashboardGroups(c *gin.Context) {
 		})
 	}
 
-	// Sort by views
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].TotalViews > groups[j].TotalViews
 	})
 
-	// Apply limit
 	limit := 10
 	if l := c.Query("limit"); l != "" {
 		if parsed := parseIntDef(l, 10); parsed > 0 {
@@ -431,8 +394,6 @@ func (h *DashboardHandler) DashboardGroups(c *gin.Context) {
 	})
 }
 
-// DashboardTimeline returns timeline chart data for views/revenue
-// Route: GET /api/v1/dashboard/timeline
 func (h *DashboardHandler) DashboardTimeline(c *gin.Context) {
 	days := 30
 	if d := c.Query("days"); d != "" {
@@ -446,7 +407,6 @@ func (h *DashboardHandler) DashboardTimeline(c *gin.Context) {
 		dailyStats, _ = h.analyticsSvc.GetDailyStats(days)
 	}
 
-	// Build cumulative views for trend
 	cumulative := 0
 	chartData := make([]gin.H, 0, len(dailyStats))
 	for _, ds := range dailyStats {
@@ -467,8 +427,6 @@ func (h *DashboardHandler) DashboardTimeline(c *gin.Context) {
 	})
 }
 
-// DashboardComparison returns comparison data between periods
-// Route: GET /api/v1/dashboard/comparison
 func (h *DashboardHandler) DashboardComparison(c *gin.Context) {
 	period1 := c.DefaultQuery("period1", "7")
 	period2 := c.DefaultQuery("period2", "30")
@@ -479,7 +437,6 @@ func (h *DashboardHandler) DashboardComparison(c *gin.Context) {
 		data2, _ = h.analyticsSvc.GetAnalyticsTotals(period2)
 	}
 
-	// Calculate differences
 	extractValue := func(data map[string]any, key string) int {
 		if data == nil {
 			return 0
@@ -522,8 +479,6 @@ func (h *DashboardHandler) DashboardComparison(c *gin.Context) {
 	})
 }
 
-// DashboardExport exports analytics data as JSON
-// Route: GET /api/v1/dashboard/export
 func (h *DashboardHandler) DashboardExport(c *gin.Context) {
 	format := c.DefaultQuery("format", "json")
 	period := c.DefaultQuery("period", "30")
@@ -539,11 +494,9 @@ func (h *DashboardHandler) DashboardExport(c *gin.Context) {
 
 	switch format {
 	case "csv":
-		// Return CSV format (simplified)
 		c.Header("Content-Type", "text/csv")
 		c.Header("Content-Disposition", "attachment; filename=analytics_export.csv")
 
-		// Build CSV from daily stats
 		dailyStats, _ := data["daily_stats"].([]any)
 		csv := "date,views,revenue\n"
 		for _, ds := range dailyStats {
@@ -558,22 +511,17 @@ func (h *DashboardHandler) DashboardExport(c *gin.Context) {
 		c.String(http.StatusOK, csv)
 
 	default:
-		// Return JSON
 		c.Header("Content-Disposition", "attachment; filename=analytics_export.json")
 		c.JSON(http.StatusOK, data)
 	}
 }
 
-// DashboardHealth returns system health status
-// Route: GET /api/v1/dashboard/health
 func (h *DashboardHandler) DashboardHealth(c *gin.Context) {
-	// Check service connection
 	serviceStatus := "ok"
 	if h.analyticsSvc == nil {
 		serviceStatus = "unavailable"
 	}
 
-	// Check data files
 	dataStatus := "ok"
 	if h.dataDir == "" {
 		dataStatus = "not_configured"
@@ -584,7 +532,6 @@ func (h *DashboardHandler) DashboardHealth(c *gin.Context) {
 		}
 	}
 
-	// Get last update time
 	lastUpdate := ""
 	if h.analyticsSvc != nil {
 		if data, err := h.analyticsSvc.GetAnalyticsCache("30"); err == nil {
@@ -605,7 +552,6 @@ func (h *DashboardHandler) DashboardHealth(c *gin.Context) {
 	})
 }
 
-// RegisterDashboardRoutes registers all dashboard routes with dependency injection
 func RegisterDashboardRoutes(r *gin.Engine, dataDir string, svc analyticsService.AnalyticsService) {
 	handler := NewDashboardHandler(dataDir, svc)
 
@@ -626,64 +572,7 @@ func RegisterDashboardRoutes(r *gin.Engine, dataDir string, svc analyticsService
 	log.Printf("✅ Dashboard routes registered at /api/v1/dashboard/*")
 }
 
-// Helper functions
-
-func asStr(v any) string {
-	if v == nil {
-		return ""
-	}
-	switch t := v.(type) {
-	case string:
-		return t
-	default:
-		return ""
-	}
-}
-
-func asFloatFromAny(v any) float64 {
-	switch t := v.(type) {
-	case float64:
-		return t
-	case float32:
-		return float64(t)
-	case int:
-		return float64(t)
-	case int64:
-		return float64(t)
-	default:
-		return 0
-	}
-}
-
-func extractFloat(data map[string]any, key string) float64 {
-	if data == nil {
-		return 0
-	}
-	if v, ok := data[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return n
-		case float32:
-			return float64(n)
-		case int:
-			return float64(n)
-		case int64:
-			return float64(n)
-		}
-	}
-	return 0
-}
-
-func parseIntDef(s string, def int) int {
-	var n int
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil || n <= 0 {
-		return def
-	}
-	return n
-}
-
 func generateEstimatedChartData() []gin.H {
-	// Generate 24 hours of estimated data for fallback
 	chart := make([]gin.H, 24)
 	now := time.Now()
 	for i := 0; i < 24; i++ {
