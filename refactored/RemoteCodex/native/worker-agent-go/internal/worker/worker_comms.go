@@ -10,6 +10,15 @@ import (
 	"velox-worker-agent/pkg/logger"
 )
 
+// Heartbeat intervals based on worker status
+const (
+	heartbeatIntervalIdle   = 60 * time.Second // Idle: less frequent
+	heartbeatIntervalBusy   = 15 * time.Second // Busy: more frequent for progress updates
+	heartbeatIntervalError  = 10 * time.Second // Error: rapid recovery attempts
+	heartbeatMaxBackoff     = 5 * time.Minute  // Maximum backoff interval
+	heartbeatBackoffMultiplier = 2.0           // Backoff multiplier
+)
+
 // register registers the worker with the master server.
 func (w *Worker) register(ctx context.Context) error {
 	hostname, _ := os.Hostname()
@@ -43,16 +52,30 @@ func (w *Worker) unregister(ctx context.Context) error {
 	return w.apiClient.UnregisterWorker(ctx, w.config.WorkerID)
 }
 
-// heartbeatLoop sends periodic heartbeats to the master with exponential backoff on failures.
+// getHeartbeatInterval returns the appropriate heartbeat interval based on worker status.
+func (w *Worker) getHeartbeatInterval() time.Duration {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	switch w.status {
+	case StatusBusy:
+		return heartbeatIntervalBusy
+	case StatusError:
+		return heartbeatIntervalError
+	default:
+		return heartbeatIntervalIdle
+	}
+}
+
+// heartbeatLoop sends periodic heartbeats to the master with adaptive intervals.
 func (w *Worker) heartbeatLoop(ctx context.Context) {
 	defer w.wg.Done()
 
-	baseInterval := 30 * time.Second
-	currentInterval := baseInterval
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 5
+	currentInterval := w.getHeartbeatInterval()
 
-	ticker := time.NewTicker(baseInterval)
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	// Send initial heartbeat immediately
@@ -61,6 +84,8 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 	} else {
 		logger.LogHeartbeatSuccess(w.config.WorkerID, string(StatusIdle))
 	}
+
+	lastStatus := w.getStatus()
 
 	for {
 		select {
@@ -71,14 +96,30 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 			w.logger.Debug("Heartbeat loop exiting (stop signal)")
 			return
 		case <-ticker.C:
+			// Check if status changed and adjust interval
+			currentStatus := w.getStatus()
+			if currentStatus != lastStatus {
+				newInterval := w.getHeartbeatInterval()
+				if newInterval != currentInterval {
+					w.logger.Debug("[HEARTBEAT] Status changed %s->%s, adjusting interval %v->%v",
+						lastStatus, currentStatus, currentInterval, newInterval)
+					currentInterval = newInterval
+					ticker.Reset(currentInterval)
+				}
+				lastStatus = currentStatus
+			}
+
 			err := w.sendHeartbeat(ctx)
 			if err != nil {
 				consecutiveErrors++
 				logger.LogHeartbeatFailed(w.config.WorkerID, err, consecutiveErrors, maxConsecutiveErrors)
 
-				// Apply exponential backoff
+				// Apply exponential backoff on errors
 				if consecutiveErrors >= maxConsecutiveErrors {
-					currentInterval = w.calculateBackoff(currentInterval)
+					currentInterval = time.Duration(float64(currentInterval) * heartbeatBackoffMultiplier)
+					if currentInterval > heartbeatMaxBackoff {
+						currentInterval = heartbeatMaxBackoff
+					}
 					w.logger.Warn("[HEARTBEAT_BACKOFF] Applying backoff, next heartbeat in %v",
 						currentInterval)
 					ticker.Reset(currentInterval)
@@ -89,20 +130,23 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 					logger.LogHeartbeatRecover(w.config.WorkerID, consecutiveErrors)
 				}
 				consecutiveErrors = 0
-				currentInterval = baseInterval
-				ticker.Reset(baseInterval)
+				
+				// Reset to status-based interval
+				newInterval := w.getHeartbeatInterval()
+				if newInterval != currentInterval {
+					currentInterval = newInterval
+					ticker.Reset(currentInterval)
+				}
 			}
 		}
 	}
 }
 
-// calculateBackoff calculates the next backoff interval.
-func (w *Worker) calculateBackoff(current time.Duration) time.Duration {
-	next := time.Duration(float64(current) * w.heartbeatBackoff.multiplier)
-	if next > w.heartbeatBackoff.maxInterval {
-		next = w.heartbeatBackoff.maxInterval
-	}
-	return next
+// getStatus returns the current worker status (thread-safe).
+func (w *Worker) getStatus() WorkerStatus {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.status
 }
 
 // sendHeartbeat sends a single heartbeat to the master.

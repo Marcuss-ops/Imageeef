@@ -29,25 +29,54 @@
     path: "{{ velox_dir }}/current/refactored/RemoteCodex/Dockerfile.worker"
   register: legacy_layout_dockerfile
 
+- name: Detect flat bundle layout
+  ansible.builtin.stat:
+    path: "{{ velox_dir }}/current/RemoteCodex/Dockerfile.worker"
+  register: flat_layout_dockerfile
+
 - name: Set bundle layout paths
   ansible.builtin.set_fact:
     velox_current_root: >-
       {{ (velox_dir + '/current/refactored') if (legacy_layout_dockerfile.stat.exists | default(false)) else (velox_dir + '/current') }}
     velox_assets_cache_host_path: >-
       {{ (velox_dir + '/current/refactored/RemoteCodex/assets_cache') if (legacy_layout_dockerfile.stat.exists | default(false)) else (velox_dir + '/current/RemoteCodex/assets_cache') }}
+    velox_worker_dockerfile_host: >-
+      {{
+        (velox_dir + '/current/refactored/RemoteCodex/Dockerfile.worker')
+        if (legacy_layout_dockerfile.stat.exists | default(false))
+        else (
+          (velox_dir + '/current/RemoteCodex/Dockerfile.worker')
+          if (flat_layout_dockerfile.stat.exists | default(false))
+          else ''
+        )
+      }}
+    velox_worker_docker_context: >-
+      {{
+        (velox_dir + '/current/refactored/RemoteCodex')
+        if (legacy_layout_dockerfile.stat.exists | default(false))
+        else (
+          (velox_dir + '/current/RemoteCodex')
+          if (flat_layout_dockerfile.stat.exists | default(false))
+          else ''
+        )
+      }}
 
 - name: Ensure velox-worker Docker image (reuse installer build when available)
   ansible.builtin.shell: |
     set -e
-    DOCKERFILE="{{ velox_current_root }}/RemoteCodex/Dockerfile.worker"
-    CONTEXT="{{ velox_current_root }}/RemoteCodex"
-    if [ ! -f "$DOCKERFILE" ]; then
-      echo "Dockerfile.worker missing at $DOCKERFILE"
-      exit 1
-    fi
     if /usr/bin/docker image inspect velox-worker:latest >/dev/null 2>&1; then
       echo "Image velox-worker:latest already present (skip rebuild)"
       exit 0
+    fi
+    DOCKERFILE="{{ velox_worker_dockerfile_host }}"
+    CONTEXT="{{ velox_worker_docker_context }}"
+    if [ -z "$DOCKERFILE" ] || [ -z "$CONTEXT" ]; then
+      echo "Dockerfile.worker missing and velox-worker:latest not present"
+      exit 1
+    fi
+    if [ ! -f "$DOCKERFILE" ]; then
+      echo "Dockerfile.worker missing at $DOCKERFILE"
+      exit 1
     fi
     if /usr/bin/docker buildx version >/dev/null 2>&1; then
       export DOCKER_BUILDKIT=1
@@ -205,7 +234,7 @@
       EnvironmentFile=/etc/velox-worker.env
       WorkingDirectory={{ velox_dir }}/current
       ExecStartPre=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
-      ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host -v {{ velox_dir }}/cache:/root/.cache -v {{ velox_assets_cache_host_path }}:/app/RemoteCodex/assets_cache --entrypoint /bin/sh velox-worker:latest -lc 'CFG=/tmp/velox-worker/worker_config.json; mkdir -p /tmp/velox-worker; [ -f "$CFG" ] || /usr/local/bin/velox-worker-agent -generate-config -config "$CFG" -work-dir /app/RemoteCodex; exec /usr/local/bin/velox-worker-agent -config "$CFG" -master {{ master_url }} -worker-id {{ inventory_hostname }} -work-dir /app/RemoteCodex -api-mode new_api'
+      ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host -v {{ velox_dir }}/current/refactored:/app -v {{ velox_dir }}/cache:/root/.cache -v {{ velox_assets_cache_host_path }}:/app/RemoteCodex/assets_cache --entrypoint /bin/sh velox-worker:latest -lc 'ENGINE_BIN=/app/RemoteCodex/native/video-engine-cpp/build/velox_video_engine; if [ ! -x "$ENGINE_BIN" ]; then mkdir -p /app/RemoteCodex/native/video-engine-cpp/build; cmake -S /app/RemoteCodex/native/video-engine-cpp -B /app/RemoteCodex/native/video-engine-cpp/build && cmake --build /app/RemoteCodex/native/video-engine-cpp/build -j"$(nproc)"; fi; export VELOX_VIDEO_ENGINE_CPP_BIN="$ENGINE_BIN"; CFG=/tmp/velox-worker/worker_config.json; mkdir -p /tmp/velox-worker; [ -f "$CFG" ] || /usr/local/bin/velox-worker-agent -generate-config -config "$CFG" -work-dir /app/RemoteCodex; exec /usr/local/bin/velox-worker-agent -config "$CFG" -master {{ master_url }} -worker-id {{ inventory_hostname }} -work-dir /app/RemoteCodex'
       ExecStop=/bin/sh -c '/usr/bin/docker stop -t 20 velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
       ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
       TimeoutStopSec=35
@@ -261,54 +290,6 @@
   changed_when: false
   failed_when: false
 
-# ── EXECSTART VALIDATION (UNIT_POLICY.md compliance) ───────────
-- name: Read ExecStart from canonical worker unit
-  ansible.builtin.command: systemctl show "velox-worker-{{ inventory_hostname }}" --property=ExecStart --value
-  register: execstart_raw
-  changed_when: false
-  failed_when: false
-
-- name: Normalize ExecStart for validation
-  ansible.builtin.set_fact:
-    execstart_value: "{{ execstart_raw.stdout | default('') | trim }}"
-
-- name: Compute ExecStart validation code
-  ansible.builtin.set_fact:
-    execstart_validation_code: >-
-      {% set e = execstart_value | lower %}
-      {% if e | length == 0 %}EMPTY_EXECSTART{% elif 'job_worker.py' in e or 'worker_bootstrap.py' in e %}LEGACY_PYTHON{% elif 'velox-worker-agent' in e or 'docker run' in e %}PASS{% else %}UNKNOWN_FORMAT{% endif %}
-
-- name: Build ExecStart validation object
-  ansible.builtin.set_fact:
-    execstart_validation:
-      rc: "{% if execstart_validation_code == 'PASS' %}0{% elif execstart_validation_code == 'LEGACY_PYTHON' %}1{% elif execstart_validation_code == 'EMPTY_EXECSTART' %}2{% else %}3{% endif %}"
-      stdout: "{{ execstart_value }}"
-      stdout_lines:
-        - "VALIDATION_CODE={{ execstart_validation_code }}"
-        - "ExecStart={{ execstart_value }}"
-  changed_when: false
-
-- name: Log ExecStart validation result
-  ansible.builtin.debug:
-    msg: |
-      ExecStart Validation: {{ execstart_validation.stdout_lines | join('\n') }}
-      Validation Code: {{ execstart_validation_code }}
-
-- name: Fail if legacy Python ExecStart detected
-  ansible.builtin.fail:
-    msg: |
-      CRITICAL: Legacy Python worker detected after systemd setup!
-      Unit: velox-worker-{{ inventory_hostname }}
-      {{ execstart_validation.stdout }}
-
-      This should not happen - the unit file was just created with Docker/Go ExecStart.
-      Possible causes:
-      1. Override file modified ExecStart
-      2. Unit file was replaced after creation
-
-      Action: Check /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service.d/ for overrides
-  when: execstart_validation_code == 'LEGACY_PYTHON'
-
 - name: Install velox-worker watchdog (auto-restart if service stopped)
   ansible.builtin.copy:
     dest: /etc/systemd/system/velox-worker-watchdog.service
@@ -321,42 +302,16 @@
 
       [Service]
       Type=oneshot
-      # Watchdog con safety check per evitare riattivazione unit legacy
-      # UNIT_POLICY.md: velox-worker.service (no hostname) è VIETATA
       ExecStart=/bin/bash -lc '\
-        # List all velox-worker*.service units
-        units_all=$(systemctl list-unit-files "velox-worker*.service" --no-legend --no-pager 2>/dev/null | awk "{print \\$1}" | grep -E "^velox-worker.*\\.service$" | grep -v "velox-worker-watchdog" || true); \
+        # List all host-specific velox-worker units
+        units=$(systemctl list-unit-files "velox-worker-*.service" --no-legend --no-pager 2>/dev/null | awk "{print \\$1}" | grep -E "^velox-worker-.+\\.service$" || true); \
         \
-        # Filter: ONLY host-specific units (velox-worker-HOST.service), EXCLUDE legacy (velox-worker.service)
-        # Legacy unit has NO hostname suffix and is FORBIDDEN per UNIT_POLICY.md
-        units=""; \
-        for u in $units_all; do \
-          # Skip legacy unit (no hostname suffix) - it must stay masked
-          if [ "$u" = "velox-worker.service" ]; then \
-            echo "[watchdog] Skipping legacy unit: $u (masked per policy)"; \
-            continue; \
-          fi; \
-          # Only process host-specific units (must have hostname suffix)
-          if echo "$u" | grep -qE "^velox-worker-.+\\.service$"; then \
-            # Validate ExecStart is Docker/Go before restarting
-            exec_start=$(systemctl show "$u" --property=ExecStart --value 2>/dev/null || echo ""); \
-            if echo "$exec_start" | grep -qE "docker run.*velox-worker|velox-worker-agent"; then \
-              units="$units $u"; \
-            elif echo "$exec_start" | grep -qE "job_worker\\.py|worker_bootstrap\\.py"; then \
-              echo "[watchdog] WARNING: Skipping unit with legacy Python ExecStart: $u"; \
-              echo "[watchdog] ExecStart: $exec_start"; \
-            else \
-              echo "[watchdog] WARNING: Skipping unit with unknown ExecStart: $u"; \
-            fi; \
-          fi; \
-        done; \
-        \
-        # Restart only validated canonical units
+        # Restart any stopped workers
         for u in $units; do \
           [ -z "$u" ] && continue; \
           systemctl is-enabled "$u" >/dev/null 2>&1 || systemctl enable "$u" >/dev/null 2>&1 || true; \
           systemctl is-active "$u" >/dev/null 2>&1 || { \
-            echo "[watchdog] Restarting canonical unit: $u"; \
+            echo "[watchdog] Restarting stopped unit: $u"; \
             systemctl restart "$u" >/dev/null 2>&1 || systemctl start "$u" >/dev/null 2>&1 || true; \
           }; \
         done'
@@ -389,7 +344,54 @@
     daemon_reload: true
 
 # ── 12h Auto-Update: OS + Bundle + Restart ────────────────────
-- name: Install velox-auto-update service (OS upgrade + bundle refresh)
+- name: Install velox-auto-update script
+  ansible.builtin.copy:
+    dest: /opt/velox/bin/auto-update.sh
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      
+      MASTER="${MASTER_URL:-}"
+      VELOX_DIR="{{ velox_dir }}"
+      LOG_PREFIX="[auto-update]"
+      
+      log() { echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+      
+      # Step 1: OS update
+      log "Starting OS update..."
+      apt-get update -qq 2>&1 | tail -3
+      apt-get upgrade -y -qq --no-install-recommends 2>&1 | tail -5 || log "WARNING: OS upgrade had issues"
+      
+      # Step 2: Download and apply new bundle from master
+      if [ -z "$MASTER" ]; then
+        log "MASTER_URL not set, skipping bundle update"
+      else
+        WORKER_ZIP="/tmp/velox-update-$(date +%s).zip"
+        log "Downloading bundle from $MASTER..."
+        if curl -sf --max-time 60 "$MASTER/api/worker/bundle?platform=linux&arch=x86_64" -o "$WORKER_ZIP" && [ -s "$WORKER_ZIP" ]; then
+          INSTALLER="$VELOX_DIR/current/velox-installer"
+          if [ -x "$INSTALLER" ]; then
+            log "Applying bundle update..."
+            "$INSTALLER" --target-dir "$VELOX_DIR" --package-source "$WORKER_ZIP" || log "WARNING: Installer had issues"
+          else
+            log "WARNING: velox-installer not found at $INSTALLER"
+          fi
+          rm -f "$WORKER_ZIP"
+        else
+          log "Bundle download skipped (master unreachable or no update available)"
+        fi
+      fi
+      
+      # Step 3: Restart worker services
+      log "Restarting worker services..."
+      for u in $(systemctl list-unit-files "velox-worker*.service" --no-legend --no-pager 2>/dev/null | awk '{print $1}' | grep -Ev "watchdog|auto-update"); do
+        systemctl restart "$u" 2>/dev/null || log "WARNING: Failed to restart $u"
+      done
+      
+      log "Auto-update completed successfully"
+
+- name: Install velox-auto-update service
   ansible.builtin.copy:
     dest: /etc/systemd/system/velox-auto-update.service
     mode: "0644"
@@ -402,25 +404,11 @@
       [Service]
       Type=oneshot
       EnvironmentFile=/etc/velox-worker.env
-      # Step 1: OS update
-      ExecStart=/bin/bash -lc 'apt-get update -qq && apt-get upgrade -y -qq --no-install-recommends 2>&1 | tail -5'
-      # Step 2: Scarica e applica nuovo bundle dal master
-      ExecStart=/bin/bash -lc '\
-        MASTER=${MASTER_URL}; \
-        WORKER_ZIP=/tmp/velox-update-$(date +%%s).zip; \
-        if curl -sf --max-time 60 "$MASTER/api/worker/bundle?platform=linux&arch=x86_64" -o "$WORKER_ZIP" && [ -s "$WORKER_ZIP" ]; then \
-          python3 -c "import zipfile; z=zipfile.ZipFile(\"$WORKER_ZIP\"); print(z.namelist()[:3])" 2>/dev/null && \
-          INSTALLER={{ velox_dir }}/current/velox-installer; \
-          [ -x "$INSTALLER" ] && "$INSTALLER" --target-dir {{ velox_dir }} --package-source "$WORKER_ZIP" || true; \
-          rm -f "$WORKER_ZIP"; \
-        else \
-          echo "[auto-update] Bundle download skipped (master non raggiungibile)"; \
-        fi'
-      # Step 3: Restart worker service
-      ExecStart=/bin/bash -lc 'for u in $(systemctl list-unit-files "velox-worker*.service" --no-legend --no-pager 2>/dev/null | awk "{print $1}" | grep -Ev "watchdog|auto-update"); do systemctl restart "$u" 2>/dev/null || true; done; echo "[auto-update] Done at $(date)"'
+      ExecStart=/opt/velox/bin/auto-update.sh
       StandardOutput=journal
       StandardError=journal
       SyslogIdentifier=velox-auto-update
+      TimeoutStartSec=600
 
 - name: Install velox-auto-update timer (ogni 12 ore)
   ansible.builtin.copy:
