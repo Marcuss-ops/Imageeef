@@ -90,7 +90,7 @@ type Config struct {
 	YouTubeAPIKey      string // Google API key for YouTube Data API v3
 	YouTubeTokensDir   string // OAuth2 tokens directory
 	YouTubePostingPath string // Root of YoutubePosting project
-	RemoteFallbackURL  string // Remote scraper fallback URL (default: http://77.93.152.122:5000)
+	RemoteFallbackURL  string // Remote scraper fallback URL (optional, default in RemoteFallback)
 
 	// Secrets directory (unified location for all credentials/tokens)
 	// Defaults to RuntimeDir/secrets if not set
@@ -271,9 +271,6 @@ func FromEnv() *Config {
 	c.YouTubeTokensDir = os.Getenv("VELOX_YOUTUBE_TOKENS_DIR")
 	c.YouTubePostingPath = os.Getenv("VELOX_YOUTUBE_POSTING_PATH")
 	c.RemoteFallbackURL = os.Getenv("VELOX_REMOTE_FALLBACK_URL")
-	if c.RemoteFallbackURL == "" {
-		c.RemoteFallbackURL = "http://77.93.152.122:5000"
-	}
 
 	// Secrets directory configuration
 	c.SecretsDir = os.Getenv("VELOX_SECRETS_DIR")
@@ -283,60 +280,46 @@ func FromEnv() *Config {
 		c.SecretsDir = filepath.Join(c.RuntimeDir, "secrets")
 	}
 
-	// Drive tokens: prefer explicit, then existing secrets/data dir, then deterministic fallback
+	// Drive tokens: prefer explicit, then secrets dir, then data dir fallback
 	if c.DriveTokensDir == "" {
-		driveTokenCandidates := []string{
+		c.DriveTokensDir = firstExistingDir([]string{
 			filepath.Join(c.SecretsDir, "drive", "tokens"),
-			filepath.Join(c.DataDir, "secrets", "drive", "tokens"),
 			filepath.Join(c.DataDir, "drive", "tokens"),
-			filepath.Join("DataServer", "data", "secrets", "drive", "tokens"),
-			filepath.Join("DataServer", "data", "drive", "tokens"),
-		}
-		c.DriveTokensDir = firstExistingDir(driveTokenCandidates)
+		})
 		if c.DriveTokensDir == "" {
 			c.DriveTokensDir = filepath.Join(c.SecretsDir, "drive", "tokens")
 		}
 	}
 
-	// Drive credentials: prefer explicit, then existing secrets/data dir, then deterministic fallback
+	// Drive credentials: prefer explicit, then secrets dir, then data dir fallback
 	if c.DriveCredentialsDir == "" {
-		driveCredCandidates := []string{
+		c.DriveCredentialsDir = firstExistingDir([]string{
 			filepath.Join(c.SecretsDir, "drive", "credentials"),
-			filepath.Join(c.DataDir, "secrets", "drive", "credentials"),
 			filepath.Join(c.DataDir, "drive", "credentials"),
-			filepath.Join("DataServer", "data", "secrets", "drive", "credentials"),
-			filepath.Join("DataServer", "data", "drive", "credentials"),
-		}
-		c.DriveCredentialsDir = firstExistingDir(driveCredCandidates)
+		})
 		if c.DriveCredentialsDir == "" {
 			c.DriveCredentialsDir = filepath.Join(c.SecretsDir, "drive", "credentials")
 		}
 	}
 	populateDriveOAuthFromCredentials(c)
 
-	// YouTube tokens: prefer explicit, then secrets dir, then legacy path
+	// YouTube tokens: prefer explicit, then secrets dir, then data dir fallback
 	if c.YouTubeTokensDir == "" {
-		youtubeTokenCandidates := []string{
+		c.YouTubeTokensDir = firstExistingDir([]string{
 			filepath.Join(c.SecretsDir, "youtube", "tokens"),
-			filepath.Join(c.DataDir, "secrets", "youtube", "tokens"),
 			filepath.Join(c.DataDir, "youtube", "tokens"),
-			filepath.Join("DataServer", "data", "secrets", "youtube", "tokens"),
-			filepath.Join("DataServer", "data", "youtube", "tokens"),
-		}
-		c.YouTubeTokensDir = firstExistingDir(youtubeTokenCandidates)
+		})
 		if c.YouTubeTokensDir == "" {
 			c.YouTubeTokensDir = filepath.Join(c.SecretsDir, "youtube", "tokens")
 		}
 	}
 
-	// YouTube credentials: prefer explicit, then secrets dir
+	// YouTube credentials: prefer explicit, then secrets dir, then data dir fallback
 	if c.YouTubeCredentialsDir == "" {
-		youtubeCredCandidates := []string{
+		c.YouTubeCredentialsDir = firstExistingDir([]string{
 			filepath.Join(c.SecretsDir, "youtube", "credentials"),
-			filepath.Join(c.DataDir, "secrets", "youtube", "credentials"),
-			filepath.Join("DataServer", "data", "secrets", "youtube", "credentials"),
-		}
-		c.YouTubeCredentialsDir = firstExistingDir(youtubeCredCandidates)
+			filepath.Join(c.DataDir, "youtube", "credentials"),
+		})
 		if c.YouTubeCredentialsDir == "" {
 			c.YouTubeCredentialsDir = filepath.Join(c.SecretsDir, "youtube", "credentials")
 		}

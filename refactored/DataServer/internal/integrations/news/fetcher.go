@@ -32,8 +32,9 @@ type TrendingResponse struct {
 
 // Fetcher fetches trending news from external APIs
 type Fetcher struct {
-	apiKeys map[string]string // e.g., "newsapi": "key"
-	cache   map[string]*cachedResult
+	apiKeys   map[string]string // e.g., "newsapi": "key"
+	userAgent string
+	cache     map[string]*cachedResult
 }
 
 type cachedResult struct {
@@ -44,8 +45,16 @@ type cachedResult struct {
 // NewFetcher creates a news fetcher with optional API keys
 func NewFetcher(apiKeys map[string]string) *Fetcher {
 	return &Fetcher{
-		apiKeys: apiKeys,
-		cache:   make(map[string]*cachedResult),
+		apiKeys:   apiKeys,
+		userAgent: "VeloxBot/1.0",
+		cache:     make(map[string]*cachedResult),
+	}
+}
+
+// SetUserAgent sets the User-Agent header for HTTP requests
+func (f *Fetcher) SetUserAgent(ua string) {
+	if ua != "" {
+		f.userAgent = ua
 	}
 }
 
@@ -99,7 +108,7 @@ func (f *Fetcher) fetchFromGoogleNews(ctx context.Context, query string, limit i
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; VeloxBot/1.0)")
+	req.Header.Set("User-Agent", f.userAgent)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -1,6 +1,7 @@
 package darkeditor
 
 import (
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -47,49 +48,50 @@ func DarkEditorHandler(cfg *DarkEditorConfig) gin.HandlerFunc {
 	if cfg.ProxyURL != "" {
 		targetURL, err := url.Parse(cfg.ProxyURL)
 		if err != nil {
-			panic("Invalid Dark Editor ProxyURL: " + err.Error())
-		}
-		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, _ error) {
-			if len(localIndexBytes) > 0 {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(localIndexBytes)
-				return
-			}
-			if localIndexPath != "" {
-				http.ServeFile(w, r, localIndexPath)
-				return
-			}
-			http.Error(w, "Dark Editor upstream unavailable", http.StatusBadGateway)
-		}
-
-		return func(c *gin.Context) {
-			// Skip API and file-serving paths - they are handled by Go handlers
-			fullPath := c.Request.URL.Path
-			if (strings.HasPrefix(fullPath, "/dark_editor_v2/api") && !strings.HasPrefix(fullPath, "/dark_editor_v2/api/v1/youtube")) ||
-				strings.HasPrefix(fullPath, "/dark_editor_v2/temp") ||
-				strings.HasPrefix(fullPath, "/dark_editor_v2/projects") {
-				c.Next()
-				return
-			}
-
-			// Keep the original path so Next.js basePath (/dark_editor_v2) continues to work.
-
-			// Update headers for proper proxy forwarding
-			// Force the upstream to send plain bytes so the gateway controls compression.
-			c.Request.Header.Set("Accept-Encoding", "identity")
-			c.Request.Header.Set("X-Forwarded-Host", c.Request.Host)
-			if c.Request.Header.Get("X-Forwarded-Proto") == "" {
-				if c.Request.TLS != nil {
-					c.Request.Header.Set("X-Forwarded-Proto", "https")
-				} else {
-					c.Request.Header.Set("X-Forwarded-Proto", "http")
+			log.Printf("darkeditor: invalid ProxyURL %q: %v, falling back to local", cfg.ProxyURL, err)
+		} else {
+			proxy := httputil.NewSingleHostReverseProxy(targetURL)
+			proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, _ error) {
+				if len(localIndexBytes) > 0 {
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(localIndexBytes)
+					return
 				}
+				if localIndexPath != "" {
+					http.ServeFile(w, r, localIndexPath)
+					return
+				}
+				http.Error(w, "Dark Editor upstream unavailable", http.StatusBadGateway)
 			}
-			c.Request.Header.Set("X-Forwarded-For", c.ClientIP())
 
-			proxy.ServeHTTP(c.Writer, c.Request)
+			return func(c *gin.Context) {
+				// Skip API and file-serving paths - they are handled by Go handlers
+				fullPath := c.Request.URL.Path
+				if (strings.HasPrefix(fullPath, "/dark_editor_v2/api") && !strings.HasPrefix(fullPath, "/dark_editor_v2/api/v1/youtube")) ||
+					strings.HasPrefix(fullPath, "/dark_editor_v2/temp") ||
+					strings.HasPrefix(fullPath, "/dark_editor_v2/projects") {
+					c.Next()
+					return
+				}
+
+				// Keep the original path so Next.js basePath (/dark_editor_v2) continues to work.
+
+				// Update headers for proper proxy forwarding
+				// Force the upstream to send plain bytes so the gateway controls compression.
+				c.Request.Header.Set("Accept-Encoding", "identity")
+				c.Request.Header.Set("X-Forwarded-Host", c.Request.Host)
+				if c.Request.Header.Get("X-Forwarded-Proto") == "" {
+					if c.Request.TLS != nil {
+						c.Request.Header.Set("X-Forwarded-Proto", "https")
+					} else {
+						c.Request.Header.Set("X-Forwarded-Proto", "http")
+					}
+				}
+				c.Request.Header.Set("X-Forwarded-For", c.ClientIP())
+
+				proxy.ServeHTTP(c.Writer, c.Request)
+			}
 		}
 	}
 

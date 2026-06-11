@@ -3,13 +3,13 @@ package main
 import (
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"velox-server/internal/config"
 	"velox-server/internal/handlers/server/analytics"
 	"velox-server/internal/handlers/server/api"
 	"velox-server/internal/handlers/server/drive"
+	scripthandlers "velox-server/internal/handlers/server/script"
 
 	workers "velox-server/internal/handlers/remote/workers"
 	"velox-server/internal/handlers/server/youtube"
@@ -100,6 +100,7 @@ func newRouter(cfg *config.Config, deps *serverDeps) *gin.Engine {
 	registerCutoverMetricsRoute(r)
 	registerAPIV1Routes(r, cfg, deps)
 	registerNativeV1Routes(r, deps)
+	registerScriptRoutes(r, cfg, deps)
 
 	registerDriveRoutes(r, cfg, deps)
 	registerYouTubeRoutes(r, cfg, deps)
@@ -162,6 +163,19 @@ func registerNativeV1Routes(r *gin.Engine, deps *serverDeps) {
 	api.RegisterV1NativeRoutes(r, deps.streamsQ, deps.redisQ, deps.reg, deps.ansibleHandlers, ytService, deps.paths.dataDir)
 }
 
+func registerScriptRoutes(r *gin.Engine, cfg *config.Config, deps *serverDeps) {
+	if deps == nil || deps.fileQ == nil {
+		return
+	}
+	rootGroup := r.Group("/api/script")
+	rootGroup.Use(adminAuthMiddleware(cfg))
+	scripthandlers.RegisterRoutes(rootGroup, cfg, deps.fileQ, deps.sqliteStore)
+
+	v1Group := r.Group("/api/v1/script")
+	v1Group.Use(adminAuthMiddleware(cfg))
+	scripthandlers.RegisterRoutes(v1Group, cfg, deps.fileQ, deps.sqliteStore)
+}
+
 func registerDriveRoutes(r *gin.Engine, cfg *config.Config, deps *serverDeps) {
 	// Initialize Drive handlers
 	driveHandlers, err := drive.NewDriveHandlers(&integrations_drive.ServiceConfig{
@@ -215,18 +229,6 @@ func registerYouTubeRoutes(r *gin.Engine, cfg *config.Config, deps *serverDeps) 
 			log.Printf("⚠️ YouTube Storage init failed: %v", storageErr)
 		} else {
 			youtubeStorage = storage
-
-			// Phase 2: Migrate legacy groups.json into unified Storage
-			oldGroupsPath := filepath.Join(deps.paths.dataDir, "youtube", "groups.json")
-			if _, statErr := os.Stat(oldGroupsPath); statErr == nil {
-				youtubeChannelsPath := filepath.Join(deps.paths.dataDir, "youtube", "channels", "channels.json")
-				migrated, migErr := storage.MigrateFromGroupsJSON(oldGroupsPath, youtubeChannelsPath)
-				if migErr != nil {
-					log.Printf("⚠️ Upload groups migration check: %v", migErr)
-				} else if migrated > 0 {
-					log.Printf("✅ Migrated %d upload groups into unified Storage", migrated)
-				}
-			}
 		}
 	}
 

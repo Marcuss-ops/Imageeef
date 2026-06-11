@@ -1,3 +1,6 @@
+// PostgreSQL implementation of ProjectStore for enterprise deployments.
+// Only active when VELOX_DB_DRIVER=postgres and VELOX_DB_DSN is set.
+// SQLite is the default and recommended database for most deployments.
 package store
 
 import (
