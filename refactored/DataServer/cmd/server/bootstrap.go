@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"velox-server/internal/app"
 	"velox-server/internal/config"
-	remoteansible "velox-server/internal/handlers/remote/ansible"
 	workersapi "velox-server/internal/handlers/remote/workers"
-	jobapi "velox-server/internal/handlers/server/jobs"
-	"velox-server/internal/handlers/server/youtube"
+	"velox-server/internal/modules/ansible"
+	"velox-server/internal/modules/drive"
+	"velox-server/internal/modules/frontend"
+	"velox-server/internal/modules/health"
+	"velox-server/internal/modules/workers"
+	"velox-server/internal/modules/youtube"
 	"velox-server/internal/queue"
-	jobservice "velox-server/internal/services/jobs"
 	"velox-server/internal/store"
 	workersreg "velox-server/internal/workers"
 )
@@ -32,15 +35,10 @@ type serverDeps struct {
 	redisQ              *queue.Queue
 	streamsQ            *queue.StreamsQueue
 	reg                 *workersreg.Registry
-	jobAPI              *jobapi.JobAPI
-	jobSubmitHandler    *jobapi.JobSubmissionHandler
 	workersRepo         store.WorkersRepository
 	sqliteStore         *store.SQLiteStore
 	workerUpdateHandler *workersapi.WorkerUpdateHandler
 	workerLifecycle     *workersapi.WorkerLifecycle
-	ansibleHandlers     *remoteansible.AnsibleHandlers
-	youtubeHandlers     *youtube.YouTubeHandlers
-	youtubeManager      *youtube.YouTubeManager
 }
 
 func configureTrustedProxies(r *gin.Engine) {
@@ -128,63 +126,28 @@ func buildServerDeps(cfg *config.Config) (*serverDeps, error) {
 
 	reg := workersreg.NewWithPersistence(nil, false, sqliteStore, cfg.DataDir)
 
-	// Log loaded revoked workers
-	revokedCount := 0
-	for _, id := range reg.ListRevoked() {
-		_ = id
-		revokedCount++
-	}
+	revokedCount := len(reg.ListRevoked())
 	if revokedCount > 0 {
 		log.Printf("[BOOTSTRAP] Loaded %d revoked workers from %s", revokedCount, cfg.DataDir)
 	}
 
-	jobsRepo := store.NewSQLiteJobsRepository(sqliteStore)
 	workersRepo := store.NewSQLiteWorkersRepository(sqliteStore)
-	jobService := jobservice.NewService(cfg, fileQ, nil, jobsRepo, nil, reg)
-	jobAPI := jobapi.NewJobAPI(cfg, fileQ, nil, jobService)
-	jobSubmitHandler := jobapi.NewJobSubmissionHandler(cfg, fileQ)
-	workerLifecycle := workersapi.NewWorkerLifecycle(cfg, reg, cfg.DataDir)
 
-	// ── Worker Update Handler (bundle download, manifest, etc.) ─────
+	// Worker Update Handler (bundle download, manifest, etc.)
 	cmdMgr := workersreg.NewCommandManager()
 	updateMgr := workersreg.NewUpdateManager()
 	tokenMgr := workersreg.NewTokenManager()
 	workerUpdateHandler := workersapi.NewWorkerUpdateHandler(cfg, reg, cmdMgr, updateMgr, tokenMgr, cfg.DataDir)
-
-	// ── Ansible (playbooks per worker remoti) ───────────────────────
-	var ansibleHandlers *remoteansible.AnsibleHandlers
-	if err := os.MkdirAll(cfg.PlaybookDir, 0755); err != nil {
-		log.Printf("[BOOTSTRAP] Cannot create ansible playbook dir %s: %v", cfg.PlaybookDir, err)
-	} else {
-		ansibleManager := remoteansible.NewAnsibleRunManager(cfg.PlaybookDir, cfg.DataDir)
-		computerMgr := remoteansible.NewAnsibleComputerManager(cfg.DataDir)
-		if err := computerMgr.LoadComputers(); err != nil {
-			log.Printf("[BOOTSTRAP] Failed to load ansible computers: %v", err)
-		}
-
-		ah := remoteansible.NewAnsibleHandlers(ansibleManager)
-		ah.SetComputerManager(computerMgr, cfg.DataDir)
-		ah.SetMasterURL(cfg.MasterURL)
-		ansibleHandlers = ah
-
-		if ansibleManager.Ready() {
-			log.Printf("[BOOTSTRAP] Ansible handlers initialized (playbooks: %s)", cfg.PlaybookDir)
-		} else {
-			log.Printf("[BOOTSTRAP] ansible-playbook not found in PATH - Ansible features disabled (install with: apt install ansible)")
-		}
-	}
+	workerLifecycle := workersapi.NewWorkerLifecycle(cfg, reg, cfg.DataDir)
 
 	return &serverDeps{
 		paths:               &serverPaths{dataDir: cfg.DataDir},
 		fileQ:               fileQ,
 		reg:                 reg,
-		jobAPI:              jobAPI,
-		jobSubmitHandler:    jobSubmitHandler,
 		workersRepo:         workersRepo,
 		sqliteStore:         sqliteStore,
 		workerUpdateHandler: workerUpdateHandler,
 		workerLifecycle:     workerLifecycle,
-		ansibleHandlers:     ansibleHandlers,
 	}, nil
 }
 
@@ -194,7 +157,20 @@ func runServer(cfg *config.Config) error {
 		return err
 	}
 
-	r := newRouter(cfg, deps)
+	registry := app.NewRegistry()
+	auth := adminAuthMiddleware(cfg)
+
+	// Register all modules
+	registry.Register(health.New())
+	registry.Register(workers.New(cfg, deps.reg, deps.workerLifecycle, deps.workerUpdateHandler, auth))
+	registry.Register(youtube.New(cfg, deps.paths.dataDir, deps.sqliteStore, auth))
+	registry.Register(drive.New(cfg))
+	registry.Register(ansible.New(cfg, deps.paths.dataDir, auth))
+	registry.Register(frontend.New(cfg))
+
+	// Create gin engine with middleware
+	r := newRouter(cfg, deps, registry)
+
 	addr := fmt.Sprintf(":%d", cfg.MasterPort)
 	srv := &http.Server{
 		Addr:              addr,
@@ -204,7 +180,6 @@ func runServer(cfg *config.Config) error {
 
 	log.Printf("[SERVER] Velox master listening on %s", addr)
 
-	// Use TLS if cert and key are configured
 	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
 		log.Printf("[SERVER] TLS enabled (cert: %s, key: %s)", cfg.TLSCertFile, cfg.TLSKeyFile)
 		return srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"velox-server/internal/app"
@@ -14,34 +15,41 @@ import (
 // Module provides Ansible deployment endpoints.
 type Module struct {
 	app.BaseModule
-	cfg            *config.Config
-	dataDir        string
-	handlers       *remoteansible.AnsibleHandlers
-	masterURL      string
+	cfg       *config.Config
+	dataDir   string
+	adminAuth gin.HandlerFunc
+	handlers  *remoteansible.AnsibleHandlers
+	masterURL string
 }
 
-// New creates a new Ansible module.
-func New(cfg *config.Config, dataDir string) *Module {
+func New(cfg *config.Config, dataDir string, adminAuth gin.HandlerFunc) *Module {
+	masterURL := cfg.MasterURL
+	if strings.TrimSpace(masterURL) == "" {
+		masterURL = os.Getenv("VELOX_MASTER_URL")
+	}
+	if strings.TrimSpace(masterURL) == "" {
+		masterURL = os.Getenv("VELOX_MASTER_SERVER_URL")
+	}
+	if strings.TrimSpace(masterURL) == "" {
+		masterURL = remoteansible.DetectLocalMasterURL()
+	}
 	return &Module{
 		cfg:       cfg,
 		dataDir:   dataDir,
-		masterURL: cfg.MasterURL,
+		adminAuth: adminAuth,
+		masterURL: masterURL,
 	}
 }
 
-// Name returns the module identifier.
 func (m *Module) Name() string {
 	return "ansible"
 }
 
-// Handlers returns the Ansible handlers (for use by other modules).
 func (m *Module) Handlers() *remoteansible.AnsibleHandlers {
 	return m.handlers
 }
 
-// RegisterRoutes registers Ansible endpoints.
 func (m *Module) RegisterRoutes(r *gin.Engine) {
-	// Initialize Ansible handlers
 	if err := os.MkdirAll(m.cfg.PlaybookDir, 0755); err != nil {
 		log.Printf("[ANSIBLE] Cannot create playbook dir %s: %v", m.cfg.PlaybookDir, err)
 		return
@@ -58,9 +66,10 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 	handlers.SetMasterURL(m.masterURL)
 	m.handlers = handlers
 
-	// Register Ansible routes (admin only)
 	v1Admin := r.Group("/api/v1/admin")
-	// Note: admin auth middleware should be applied here
+	if m.adminAuth != nil {
+		v1Admin.Use(m.adminAuth)
+	}
 	v1Admin.GET("/ansible/computers/summary", m.handlers.AnsibleComputersSummaryHandler)
 	v1Admin.GET("/ansible/computers/list", m.handlers.AnsibleComputersListHandler)
 	v1Admin.POST("/ansible/computers", m.handlers.AnsibleComputersSaveHandler)
@@ -74,13 +83,11 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 	}
 }
 
-// Start initializes the module.
 func (m *Module) Start(ctx context.Context) error {
 	log.Printf("[ANSIBLE] Module started")
 	return nil
 }
 
-// Stop gracefully shuts down the module.
 func (m *Module) Stop(ctx context.Context) error {
 	log.Printf("[ANSIBLE] Module stopped")
 	return nil

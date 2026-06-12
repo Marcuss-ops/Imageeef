@@ -37,8 +37,6 @@ func (m *Module) Name() string {
 
 // RegisterRoutes registers job management endpoints.
 func (m *Module) RegisterRoutes(r *gin.Engine) {
-	// Job CRUD endpoints (admin protected)
-	v1 := r.Group("/api/v1/jobs")
 	// Note: admin auth middleware should be applied here
 	// For now, we keep the existing pattern from router.go
 

@@ -18,44 +18,39 @@ type Module struct {
 	cfg            *config.Config
 	dataDir        string
 	sqliteStore    *store.SQLiteStore
+	adminAuth      gin.HandlerFunc
 	youtubeService *integrationsYoutube.Service
 	youtubeStorage *integrationsYoutube.Storage
 	handlers       *ytHandlers.YouTubeHandlers
 	manager        *ytHandlers.YouTubeManager
 }
 
-// New creates a new YouTube module.
-func New(cfg *config.Config, dataDir string, sqliteStore *store.SQLiteStore) *Module {
+func New(cfg *config.Config, dataDir string, sqliteStore *store.SQLiteStore, adminAuth gin.HandlerFunc) *Module {
 	return &Module{
 		cfg:         cfg,
 		dataDir:     dataDir,
 		sqliteStore: sqliteStore,
+		adminAuth:   adminAuth,
 	}
 }
 
-// Name returns the module identifier.
 func (m *Module) Name() string {
 	return "youtube"
 }
 
-// Handlers returns the YouTube handlers (for use by other modules).
 func (m *Module) Handlers() *ytHandlers.YouTubeHandlers {
 	return m.handlers
 }
 
-// Manager returns the YouTube manager (for use by other modules).
 func (m *Module) Manager() *ytHandlers.YouTubeManager {
 	return m.manager
 }
 
-// Service returns the YouTube service (for use by other modules).
 func (m *Module) Service() *integrationsYoutube.Service {
 	return m.youtubeService
 }
 
-// RegisterRoutes registers YouTube endpoints.
 func (m *Module) RegisterRoutes(r *gin.Engine) {
-	// Initialize YouTube service
 	youtubeService, err := integrationsYoutube.NewService(&integrationsYoutube.ServiceConfig{
 		TokensDir:          m.cfg.YouTubeTokensDir,
 		YoutubePostingPath: m.cfg.YouTubePostingPath,
@@ -70,12 +65,10 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 	}
 	m.youtubeService = youtubeService
 
-	// Connect QuotaManager to SQLiteStore for tracking
 	if m.sqliteStore != nil {
 		youtubeService.GetQuotaManager().SetStore(m.sqliteStore)
 	}
 
-	// Create shared Storage
 	if m.dataDir != "" {
 		storage, storageErr := integrationsYoutube.NewStorage(m.dataDir)
 		if storageErr != nil {
@@ -85,7 +78,6 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 		}
 	}
 
-	// Initialize YouTube handlers
 	handlers, err := ytHandlers.NewYouTubeHandlers(&integrationsYoutube.ServiceConfig{
 		TokensDir:          m.cfg.YouTubeTokensDir,
 		YoutubePostingPath: m.cfg.YouTubePostingPath,
@@ -100,18 +92,17 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 	}
 	m.handlers = handlers
 
-	// Register YouTube API routes
 	ytGroup := r.Group("/api/v1/youtube")
-	// Note: admin auth middleware should be applied here
+	if m.adminAuth != nil {
+		ytGroup.Use(m.adminAuth)
+	}
 	ytHandlers.RegisterYouTubeRoutes(ytGroup, m.handlers)
 
-	// Public OAuth callback
 	r.GET("/youtube_channels/oauth/callback", m.handlers.OAuthCallback)
 	r.GET("/api/v1/youtube/oauth/callback", m.handlers.OAuthCallback)
 
 	log.Printf("[YOUTUBE] API routes registered at /api/v1/youtube/*")
 
-	// Create YouTube Manager for competitor tracking
 	if m.dataDir != "" {
 		apiKey := m.cfg.YouTubeAPIKey
 		fallbackURL := m.cfg.RemoteFallbackURL
@@ -125,13 +116,11 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 	}
 }
 
-// Start initializes the module.
 func (m *Module) Start(ctx context.Context) error {
 	log.Printf("[YOUTUBE] Module started")
 	return nil
 }
 
-// Stop gracefully shuts down the module.
 func (m *Module) Stop(ctx context.Context) error {
 	log.Printf("[YOUTUBE] Module stopped")
 	return nil

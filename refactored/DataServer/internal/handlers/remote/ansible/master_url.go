@@ -74,7 +74,7 @@ func IsLocalhostURL(url string) bool {
 	return strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1") || strings.Contains(url, "0.0.0.0")
 }
 
-func detectLocalMasterURL() string {
+func DetectLocalMasterURL() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return "http://127.0.0.1:8000"

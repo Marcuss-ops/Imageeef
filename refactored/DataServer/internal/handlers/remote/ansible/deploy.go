@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"time"
 
@@ -120,6 +121,12 @@ func (h *AnsibleHandlers) runDeployWorkers(targets []string, batchSize int, cana
 
 	go func() {
 		bgCtx := context.Background()
+		masterURL := firstNonEmpty(
+			h.masterURL,
+			os.Getenv("VELOX_MASTER_URL"),
+			os.Getenv("VELOX_MASTER_SERVER_URL"),
+			DetectLocalMasterURL(),
+		)
 		summary := []string{
 			fmt.Sprintf("canary=%s", strings.Join(plan.CanaryWorkers, ",")),
 		}
@@ -140,7 +147,7 @@ func (h *AnsibleHandlers) runDeployWorkers(targets []string, batchSize int, cana
 				return nil
 			}
 			runID, err := h.manager.RunPlaybook(bgCtx, strings.Join(hosts, ","), "update_workers.yml", map[string]interface{}{
-				"master_url": h.masterURL,
+				"master_url": masterURL,
 			})
 			if err != nil {
 				return err

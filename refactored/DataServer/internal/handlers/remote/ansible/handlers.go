@@ -157,7 +157,7 @@ func (h *AnsibleHandlers) runActionForTargets(action string, targets []string) (
 	}
 
 	vars := map[string]interface{}{
-		"master_url": firstNonEmpty(h.masterURL, os.Getenv("VELOX_MASTER_URL"), os.Getenv("VELOX_MASTER_SERVER_URL"), detectLocalMasterURL()),
+		"master_url": firstNonEmpty(h.masterURL, os.Getenv("VELOX_MASTER_URL"), os.Getenv("VELOX_MASTER_SERVER_URL"), DetectLocalMasterURL()),
 	}
 	return h.manager.RunPlaybook(context.Background(), strings.Join(targets, ","), playbook, vars)
 }
