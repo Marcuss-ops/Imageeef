@@ -32,6 +32,7 @@ type AnsibleComputer struct {
 	LastLogSource    string   `json:"last_log_source,omitempty"`
 	LastErrorMessage string   `json:"last_error_message,omitempty"`
 	LinkedWorkerID   string   `json:"linked_worker_id,omitempty"`
+	WorkerID         string   `json:"worker_id,omitempty"`
 }
 
 // AnsibleComputerManager manages the Ansible computers inventory.

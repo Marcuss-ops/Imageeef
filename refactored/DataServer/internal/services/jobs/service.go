@@ -120,6 +120,13 @@ func (s *Service) ClaimNextJob(ctx context.Context, req ClaimRequest) (*ClaimRes
 		}
 	}
 
+	// Worker compatibility check: reject if protocol/bundle/capabilities mismatch
+	if workerInfo != nil {
+		if reason := s.checkWorkerCompatibility(ctx, workerInfo, ""); reason != "" {
+			return &ClaimResult{Reason: "Worker incompatible: " + reason}, nil
+		}
+	}
+
 	var (
 		payload map[string]interface{}
 		jobID   string

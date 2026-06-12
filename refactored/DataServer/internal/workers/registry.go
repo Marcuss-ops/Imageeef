@@ -191,10 +191,10 @@ func (r *Registry) Heartbeat(ctx context.Context, workerID, workerName, status, 
 			info.Metrics = v
 		}
 		if v, ok := extra["recent_logs"]; ok {
-			info.RecentLogs = extractStringSlice(v)
+			info.RecentLogs = ExtractStringSlice(v)
 		}
 		if v, ok := extra["recent_errors"]; ok {
-			info.RecentErrors = extractStringSlice(v)
+			info.RecentErrors = ExtractStringSlice(v)
 		}
 		if v, ok := extra["jobs_completed"].(float64); ok {
 			if info.Metrics == nil {
@@ -289,8 +289,8 @@ func parseWorkerRedisFields(m map[string]string, info *WorkerInfo) {
 		var extra map[string]interface{}
 		if err := json.Unmarshal([]byte(extraRaw), &extra); err == nil {
 			applyMetadataFields(extra, info)
-			info.RecentLogs = extractStringSlice(extra["recent_logs"])
-			info.RecentErrors = extractStringSlice(extra["recent_errors"])
+			info.RecentLogs = ExtractStringSlice(extra["recent_logs"])
+			info.RecentErrors = ExtractStringSlice(extra["recent_errors"])
 		}
 	}
 }

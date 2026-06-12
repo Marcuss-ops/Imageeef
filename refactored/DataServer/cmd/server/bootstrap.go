@@ -183,6 +183,15 @@ func runServer(cfg *config.Config) error {
 
 	log.Printf("[SERVER] Velox master listening on %s", addr)
 
+	// Auto-generate manifest_v2.json at startup
+	if deps.workerUpdateHandler != nil {
+		go func() {
+			if err := deps.workerUpdateHandler.GenerateManifestV2(); err != nil {
+				log.Printf("[BOOTSTRAP] Manifest auto-generation skipped: %v", err)
+			}
+		}()
+	}
+
 	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
 		log.Printf("[SERVER] TLS enabled (cert: %s, key: %s)", cfg.TLSCertFile, cfg.TLSKeyFile)
 		return srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)

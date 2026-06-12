@@ -114,7 +114,20 @@ func GenerateWorkerID() string {
 	return hex.EncodeToString(b)
 }
 
-func extractStringSlice(v interface{}) []string {
+// GetSupportedJobTypes returns the list of job types a worker supports.
+func (w *WorkerInfo) GetSupportedJobTypes() []string {
+	if w.Capabilities == nil {
+		return nil
+	}
+	v, ok := w.Capabilities["supported_job_types"]
+	if !ok {
+		return nil
+	}
+	return ExtractStringSlice(v)
+}
+
+// ExtractStringSlice converts various slice-like types to []string.
+func ExtractStringSlice(v interface{}) []string {
 	if v == nil {
 		return nil
 	}

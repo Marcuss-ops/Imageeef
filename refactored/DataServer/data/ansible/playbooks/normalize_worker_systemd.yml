@@ -1,0 +1,253 @@
+---
+# ============================================================
+# NORMALIZE WORKER SYSTEMD — Pulizia e ricostruzione servizi
+# ============================================================
+# Obiettivo:
+#   - Unmask servizio velox-worker
+#   - Stop e disable di TUTTI i vecchi servizi (velox-worker-*.service)
+#   - Rimozione vecchie unit file e override directories
+#   - Scrittura di una sola unit ufficiale per ogni worker
+#   - Scrittura env file corretto
+#   - daemon-reload, enable, start
+#   - Verifica heartbeat sul master
+# ============================================================
+
+- name: Normalize worker systemd
+  hosts: workers
+  gather_facts: yes
+  vars:
+    velox_dir: "/opt/velox"
+    master_url: "{{ master_url | default('http://127.0.0.1:8000') }}"
+    version_number: "{{ lookup('file', playbook_dir + '/../../../../VERSION.txt') | trim }}"
+
+  tasks:
+    # ── STEP 1: Pulizia servizi vecchi ────────────────────────
+    - name: Normalize | Stop all old velox-worker services
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for u in $(systemctl list-unit-files 'velox-worker*.service' --no-legend --no-pager 2>/dev/null | awk '{print $1}' | grep -v watchdog | grep -v auto-update || true); do
+          systemctl stop "$u" 2>/dev/null || true
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize | Disable all old velox-worker services
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for u in $(systemctl list-unit-files 'velox-worker*.service' --no-legend --no-pager 2>/dev/null | awk '{print $1}' | grep -v watchdog | grep -v auto-update || true); do
+          systemctl disable "$u" 2>/dev/null || true
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize | Unmask velox-worker service
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl unmask "velox-worker-{{ inventory_hostname }}" 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize | Stop and disable any generic velox-worker.service
+      ansible.builtin.shell: |
+        set -euo pipefail
+        systemctl stop velox-worker.service 2>/dev/null || true
+        systemctl disable velox-worker.service 2>/dev/null || true
+        systemctl unmask velox-worker.service 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    # ── STEP 2: Rimuovi vecchie unit file ─────────────────────
+    - name: Normalize | Remove old unit files (not the canonical one)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        KEEP="velox-worker-{{ inventory_hostname }}.service"
+        for f in /etc/systemd/system/velox-worker-*.service; do
+          [ ! -f "$f" ] && continue
+          BASE=$(basename "$f")
+          if [ "$BASE" != "$KEEP" ] && [ "$BASE" != "velox-worker-console.service" ]; then
+            rm -f "$f"
+            echo "Removed: $f"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: removed_units
+      changed_when: "'Removed:' in (removed_units.stdout | default(''))"
+
+    - name: Normalize | Remove old override directories
+      ansible.builtin.shell: |
+        set -euo pipefail
+        KEEP_DIR="velox-worker-{{ inventory_hostname }}.service.d"
+        for d in /etc/systemd/system/velox-worker-*.service.d; do
+          [ ! -d "$d" ] && continue
+          BASE=$(basename "$d")
+          if [ "$BASE" != "$KEEP_DIR" ]; then
+            rm -rf "$d"
+            echo "Removed dir: $d"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: removed_dirs
+      changed_when: "'Removed dir:' in (removed_dirs.stdout | default(''))"
+
+    # ── STEP 3: Scrivi env file corretto ──────────────────────
+    - name: Normalize | Write env file
+      ansible.builtin.copy:
+        dest: /etc/velox-worker.env
+        mode: "0600"
+        content: |
+          MASTER_URL={{ master_url }}
+          VELOX_HEARTBEAT_MASTERS={{ master_url }}{% if master_url_secondary is defined and master_url_secondary %},{{ master_url_secondary }}{% endif %}
+          VELOX_SECONDARY_MASTER_URL={% if master_url_secondary is defined and master_url_secondary %}{{ master_url_secondary }}{% else %}{% endif %}
+          WORKER_NAME={{ inventory_hostname }}
+          VELOX_WORKER_ID={{ worker_id | default(inventory_hostname) }}
+          VELOX_DIR={{ velox_dir }}
+          VELOX_BUNDLE_VERSION={{ version_number | default('v1.0.6') }}
+          VELOX_VERSION_NUMBER={{ version_number | default('v1.0.6') }}
+
+    # ── STEP 4: Assicura directory ────────────────────────────
+    - name: Normalize | Ensure worker directories exist
+      ansible.builtin.file:
+        path: "{{ velox_dir }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - current
+        - cache
+        - bin
+
+    # ── STEP 5: Scrivi unit file corretto ─────────────────────
+    - name: Normalize | Ensure override directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Normalize | Create systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Velox Worker - {{ inventory_hostname }}
+          After=network-online.target docker.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          EnvironmentFile=/etc/velox-worker.env
+          WorkingDirectory={{ velox_dir }}/current
+          ExecStartPre=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
+          ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host -e VELOX_BUNDLE_VERSION -e VELOX_VERSION_NUMBER -e WORKER_NAME -e VELOX_WORKER_ID -v {{ velox_dir }}/current/refactored:/app -v {{ velox_dir }}/cache:/root/.cache --entrypoint /bin/sh velox-worker:latest -lc 'CFG=/tmp/velox-worker/worker_config.json; mkdir -p /tmp/velox-worker; [ -f "$CFG" ] || /usr/local/bin/velox-worker-agent -generate-config -config "$CFG" -work-dir /app/RemoteCodex; exec /usr/local/bin/velox-worker-agent -config "$CFG" -master $MASTER_URL -worker-id $VELOX_WORKER_ID -work-dir /app/RemoteCodex'
+          ExecStop=/bin/sh -c '/usr/bin/docker stop -t 20 velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
+          ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
+          TimeoutStopSec=35
+          KillMode=control-group
+          SuccessExitStatus=137 143
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=velox-worker-{{ inventory_hostname }}
+
+          [Install]
+          WantedBy=multi-user.target
+
+    # ── STEP 6: daemon-reload + enable + start ────────────────
+    - name: Normalize | Daemon reload
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Normalize | Reset failed state
+      ansible.builtin.shell: systemctl reset-failed "velox-worker-{{ inventory_hostname }}" || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Normalize | Enable and start worker
+      ansible.builtin.systemd:
+        name: velox-worker-{{ inventory_hostname }}
+        enabled: true
+        state: started
+
+    - name: Normalize | Wait for service stabilization
+      ansible.builtin.pause:
+        seconds: 5
+
+    # ── STEP 7: Verifica stato servizio ───────────────────────
+    - name: Normalize | Check service status
+      ansible.builtin.shell: |
+        set +e
+        systemctl is-active "velox-worker-{{ inventory_hostname }}" 2>/dev/null
+      register: service_active
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize | Get journal logs
+      ansible.builtin.shell: |
+        journalctl -u "velox-worker-{{ inventory_hostname }}" --no-pager -n 30 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: journal_output
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize | Log service status
+      ansible.builtin.debug:
+        msg: >-
+          {% if service_active.stdout == 'active' %}
+          ✅ Worker {{ inventory_hostname }} ({{ worker_id | default(inventory_hostname) }}) — servizio attivo
+          {% else %}
+          ⚠️  Worker {{ inventory_hostname }} — stato: {{ service_active.stdout | default('unknown') }}
+          {% endif %}
+
+    - name: Normalize | Show recent journal
+      ansible.builtin.debug:
+        msg: "{{ journal_output.stdout_lines | default([]) }}"
+
+    # ── STEP 8: Verifica heartbeat sul master ──────────────────
+    - name: Normalize | Verify heartbeat on master
+      ansible.builtin.uri:
+        url: "{{ master_url }}/api/v1/workers/status"
+        method: GET
+        return_content: yes
+        status_code: 200
+        timeout: 10
+      register: workers_status
+      delegate_to: localhost
+      become: no
+      failed_when: false
+
+    - name: Normalize | Log master workers status
+      ansible.builtin.debug:
+        msg: >-
+          {% if workers_status.status == 200 %}
+          Master workers: {{ workers_status.json | default({}) | to_nice_json | truncate(500) }}
+          {% else %}
+          ⚠️  Cannot reach master status endpoint ({{ workers_status.status | default('error') }})
+          {% endif %}
+      delegate_to: localhost
+      become: no
+
+    # ── STEP 9: Riepilogo finale ──────────────────────────────
+    - name: Normalize | Final summary
+      ansible.builtin.debug:
+        msg: |-
+          ========================================
+          NORMALIZE COMPLETE — {{ inventory_hostname }}
+          ========================================
+          Worker ID: {{ worker_id | default(inventory_hostname) }}
+          Service:   velox-worker-{{ inventory_hostname }}
+          Status:    {{ service_active.stdout | default('unknown') }}
+          Env file:  /etc/velox-worker.env
+          Master:    {{ master_url }}
+          ========================================

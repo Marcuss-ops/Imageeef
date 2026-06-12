@@ -79,6 +79,7 @@ func (s *SQLiteStore) ClaimNextPendingJob(workerID string, now time.Time) ([]byt
 		payload["claimed_at"] = nowISO
 		payload["updated_at"] = nowUnix
 		payload["retry_count"] = retryCount
+		payload["lease_expiry"] = now.UTC().Add(30 * time.Minute).Format(time.RFC3339)
 		payload["history"] = history
 
 		updatedRaw, err := json.Marshal(payload)

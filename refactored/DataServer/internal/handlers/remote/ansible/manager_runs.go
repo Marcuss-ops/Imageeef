@@ -327,6 +327,11 @@ func (m *AnsibleRunManager) writeInventoryFile(hosts []string) (string, map[stri
 		if c.SSHKeyPath != "" {
 			lines = append(lines, fmt.Sprintf("          ansible_ssh_private_key_file: %s", c.SSHKeyPath))
 		}
+		if c.WorkerID != "" {
+			lines = append(lines, fmt.Sprintf("          worker_id: %s", c.WorkerID))
+		} else {
+			lines = append(lines, fmt.Sprintf("          worker_id: %s", alias))
+		}
 		if c.Enabled {
 			lines = append(lines, "          ansible_become: true", "          ansible_become_method: sudo")
 			if c.SSHPassword != "" {
