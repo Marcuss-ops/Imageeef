@@ -53,9 +53,9 @@ venv/
 
 # ── Node ─────────────────────────────────────────────────────
 node_modules/
-frontend_standalone/web/node_modules/
-frontend_standalone/web/test-results/
-frontend_standalone/web/.svelte-kit/
+refactored/frontend_standalone/web/node_modules/
+refactored/frontend_standalone/web/test-results/
+refactored/frontend_standalone/web/.svelte-kit/
 
 # ── Go build cache ───────────────────────────────────────────
 *.test

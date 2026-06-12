@@ -50,7 +50,7 @@ Velox è un sistema distribuito per la generazione e composizione video. È comp
 
 ## 1. Struttura del Repository
 
-La sorgente ufficiale è solo `refactored/`. Le vecchie cartelle root `DataServer/` e `RemoteCodex/` sono state rimosse per evitare deploy accidentali della copia legacy.
+La sorgente ufficiale è solo `refactored/`. Le vecchie cartelle root legacy sono state rimosse per evitare deploy accidentali dalla copia sbagliata.
 
 ```
 .
@@ -73,8 +73,6 @@ La sorgente ufficiale è solo `refactored/`. Le vecchie cartelle root `DataServe
 │   ├── scripts/                       # Scripts di deploy
 │   └── VERSION.txt                    # Versione bundle/codice
 │
-├── shared/                            # Shared runtime/data legacy compat
-├── docs/                              # Docs root legacy compat
 ├── scripts/                           # Deploy wrapper root
 └── VERSION.txt                        # Versione radice
 ```
