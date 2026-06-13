@@ -8,6 +8,7 @@ type EndpointSet struct {
 	Heartbeat        string
 	GetJob           string
 	SubmitResult     string
+	CompleteJob      string
 	HealthCheck      string
 	GetCommands      string
 	AckCommand       string
@@ -21,6 +22,7 @@ var newAPIEndpoints = EndpointSet{
 	Heartbeat:        "/api/workers/heartbeat",
 	GetJob:           "/api/jobs/get",
 	SubmitResult:     "/api/jobs/result",
+	CompleteJob:      "/api/jobs/complete",
 	HealthCheck:      "/health",
 	GetCommands:      "/api/workers/commands",
 	AckCommand:       "/api/workers/commands/ack",
@@ -65,6 +67,11 @@ func (a *EndpointAdapter) GetJob() string {
 // SubmitResult returns the endpoint for job result submission.
 func (a *EndpointAdapter) SubmitResult() string {
 	return a.endpoints.SubmitResult
+}
+
+// CompleteJob returns the endpoint for job completion.
+func (a *EndpointAdapter) CompleteJob() string {
+	return a.endpoints.CompleteJob
 }
 
 // HealthCheck returns the endpoint for health checks.

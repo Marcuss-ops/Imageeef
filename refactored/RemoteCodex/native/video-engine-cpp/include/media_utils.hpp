@@ -50,7 +50,7 @@ inline bool buildSceneSegment(const fs::path& imagePath, const fs::path& segment
             "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,"
             "zoompan=z='min(zoom+0.0008,1.10)':d=" + std::to_string(frames) + ":s=1920x1080:fps=30,"
             "format=yuv420p";
-        cmd << "-loop 1 -i " << file::shellQuote(imagePath.string())
+        cmd << "-stream_loop -1 -i " << file::shellQuote(imagePath.string())
             << " -vf " << file::shellQuote(filter)
             << " -frames:v " << frames
             << " -c:v libx264 -preset veryfast -tune stillimage -crf 20 -threads 0 -pix_fmt yuv420p -r 30 "

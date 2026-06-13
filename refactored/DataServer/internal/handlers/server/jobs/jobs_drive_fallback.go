@@ -473,27 +473,52 @@ func resolveVideoPath(videosDir, jobID string, job map[string]interface{}) strin
 	if out, ok := job["worker_output"].(map[string]interface{}); ok {
 		candidates = append(candidates, jobsservice.ExtractOutputVideoPath(out))
 	}
-	for _, c := range candidates {
-		if c == "" {
-			continue
+
+	checkPath := func(path string) string {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return ""
 		}
-		if st, err := os.Stat(c); err == nil && !st.IsDir() {
-			return c
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return path
+		}
+		if !filepath.IsAbs(path) && strings.TrimSpace(videosDir) != "" {
+			if joined := filepath.Join(videosDir, path); joined != path {
+				if st, err := os.Stat(joined); err == nil && !st.IsDir() {
+					return joined
+				}
+			}
+			if joined := filepath.Join(videosDir, filepath.Base(path)); joined != path {
+				if st, err := os.Stat(joined); err == nil && !st.IsDir() {
+					return joined
+				}
+			}
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			if st, err := os.Stat(abs); err == nil && !st.IsDir() {
+				return abs
+			}
+		}
+		return ""
+	}
+
+	for _, c := range candidates {
+		if resolved := checkPath(c); resolved != "" {
+			return resolved
 		}
 	}
 
-	if strings.TrimSpace(videosDir) == "" {
-		return ""
-	}
-	patterns := []string{
-		filepath.Join(videosDir, "*"+jobID+"*.mp4"),
-		filepath.Join(videosDir, "*"+jobID+"*.mov"),
-	}
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(pattern)
-		for _, m := range matches {
-			if st, err := os.Stat(m); err == nil && !st.IsDir() {
-				return m
+	if strings.TrimSpace(videosDir) != "" {
+		patterns := []string{
+			filepath.Join(videosDir, "*"+jobID+"*.mp4"),
+			filepath.Join(videosDir, "*"+jobID+"*.mov"),
+		}
+		for _, pattern := range patterns {
+			matches, _ := filepath.Glob(pattern)
+			for _, m := range matches {
+				if st, err := os.Stat(m); err == nil && !st.IsDir() {
+					return m
+				}
 			}
 		}
 	}

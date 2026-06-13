@@ -23,7 +23,7 @@ func (h *ScriptHandlers) buildSceneImagePayload(cfg *config.Config, payload map[
 		videoName = "script_with_images_" + time.Now().UTC().Format("20060102_150405")
 	}
 
-	scriptText := firstNonEmptyString(payload, "script_text")
+	scriptText := firstNonEmptyString(payload, "script_text", "script", "source_text")
 	if scriptText == "" {
 		scriptText = buildScriptText(payload)
 	}

@@ -288,6 +288,15 @@ func (c *Client) SubmitJobResult(ctx context.Context, result *JobResult) error {
 	return err
 }
 
+// CompleteJob notifies the master that a job has completed successfully.
+func (c *Client) CompleteJob(ctx context.Context, jobID, workerID string) error {
+	_, err := c.doRequest(ctx, "POST", c.adapter.CompleteJob(), map[string]string{
+		"job_id":    jobID,
+		"worker_id": workerID,
+	})
+	return err
+}
+
 // SendHeartbeat sends a heartbeat to the master server.
 func (c *Client) SendHeartbeat(ctx context.Context, payload *HeartbeatPayload) error {
 	_, err := c.doRequest(ctx, "POST", c.adapter.Heartbeat(), payload)

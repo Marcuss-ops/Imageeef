@@ -121,7 +121,10 @@ func normalizeSceneVideoPayload(payloadMap map[string]interface{}) (map[string]i
 		return nil, &validationError{field: "video_name", message: "is required"}
 	}
 
-	scriptText := strings.TrimSpace(firstString(payloadMap, "script_text", "script"))
+	scriptText := strings.TrimSpace(firstString(payloadMap, "script_text", "script", "source_text", "title", "video_name"))
+	if scriptText == "" {
+		scriptText = title
+	}
 	if scriptText == "" {
 		return nil, &validationError{field: "script_text", message: "is required"}
 	}

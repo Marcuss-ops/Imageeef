@@ -130,6 +130,13 @@ func (w *Worker) executeJob(ctx context.Context, job *api.Job) {
 	} else {
 		w.logger.Debug("Job result submitted: %s (status: %s)", job.JobID, result.Status)
 		telemetry.GetPrometheusMetrics().RecordJobCompleteAck(job.JobType, float64(time.Since(ackStartTime).Milliseconds()))
+		completeCtx, completeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := w.apiClient.CompleteJob(completeCtx, job.JobID, w.config.WorkerID); err != nil {
+			w.logger.Warn("[JOB] Complete notification failed for %s: %v", job.JobID, err)
+		} else {
+			w.logger.Info("[JOB] Complete notification sent for %s", job.JobID)
+		}
+		completeCancel()
 	}
 
 	if execErr != nil {

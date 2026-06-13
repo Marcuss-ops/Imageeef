@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MASTER_URL="${MASTER_URL:-http://127.0.0.1:8000}"
+MASTER_URL="${MASTER_URL:-http://host.docker.internal:8000}"
 IMAGE_TAG="${IMAGE_TAG:-velox-worker:test}"
 WORKER_BASE_DIR="${WORKER_BASE_DIR:-$HOME/.velox/local-workers}"
 WORK_DIR="${WORK_DIR:-/app/RemoteCodex}"

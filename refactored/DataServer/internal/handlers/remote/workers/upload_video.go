@@ -193,6 +193,10 @@ func UploadCompletedVideo(cfg *config.Config, fileQ *queue.FileQueue) gin.Handle
 			c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "failed to save video"})
 			return
 		}
+		absFinalPath, absErr := filepath.Abs(finalPath)
+		if absErr != nil {
+			absFinalPath = finalPath
+		}
 
 		fileSize := written / (1024 * 1024) // MB
 		log.Printf("[OK] Video salvato: %s (%d MB)", finalPath, fileSize)
@@ -205,8 +209,8 @@ func UploadCompletedVideo(cfg *config.Config, fileQ *queue.FileQueue) gin.Handle
 				"completed_at":       now,
 				"completed_by":       workerID,
 				"video_uploaded":     true,
-				"master_video_path":  finalPath,
-				"result_path_worker": finalPath,
+				"master_video_path":  absFinalPath,
+				"result_path_worker": absFinalPath,
 				"job_run_id":         jobRunID,
 			}
 			if err := fileQ.UpdateJobFields(c.Request.Context(), jobID, updates); err != nil {
@@ -236,7 +240,7 @@ func UploadCompletedVideo(cfg *config.Config, fileQ *queue.FileQueue) gin.Handle
 			"success":     true,
 			"message":     fmt.Sprintf("Video ricevuto e salvato: %s", videoFilename),
 			"job_id":      jobID,
-			"video_path":  finalPath,
+			"video_path":  absFinalPath,
 			"upload_info": canonicalUploadInfo,
 		})
 	}
