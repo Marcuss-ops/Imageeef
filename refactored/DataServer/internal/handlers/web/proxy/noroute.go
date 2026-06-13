@@ -60,11 +60,11 @@ func NoRouteHandler(serveSPA gin.HandlerFunc, landing gin.HandlerFunc, darkEdito
 		if c.Request.Method == "GET" || c.Request.Method == "HEAD" {
 			isRoot := path == "/" || path == ""
 
-			// Try SPA handler if available (real or noop)
+			// Try SPA handler if available
 			if serveSPA != nil {
 				serveSPA(c)
-				// If SPA wrote a response, we're done
-				if c.Writer.Size() >= 0 {
+				// If the SPA wrote a response body, we're done
+				if c.Writer.Size() > 0 {
 					if !c.IsAborted() {
 						// Check if SPA signaled that file was not found
 						if spaNotFound, exists := c.Get("spa_file_not_found"); exists && spaNotFound.(bool) {
@@ -79,7 +79,7 @@ func NoRouteHandler(serveSPA gin.HandlerFunc, landing gin.HandlerFunc, darkEdito
 					}
 					return
 				}
-				// SPA wrote nothing (noop handler) — fall through to landing page for root
+				// SPA wrote nothing — fall through to landing page for root
 			}
 
 			// Fallback: landing page for root path

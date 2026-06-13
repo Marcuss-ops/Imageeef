@@ -62,11 +62,16 @@ func (m *Module) RegisterRoutes(r *gin.Engine) {
 		c.Data(200, "image/svg+xml; charset=utf-8", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f97316"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0f172a"/><circle cx="32" cy="32" r="18" fill="url(#g)"/><path d="M25 27h14l-7 14z" fill="#fff"/></svg>`))
 	})
 
-	// SPA handler
-	if m.cfg.SPADir != "" {
-		if _, err := os.Stat(m.cfg.SPADir); err == nil {
-			m.serveSPAHandler = spa.ServeSPA(m.cfg)
-		}
+	// SPA handler — use SPADir from env or fall back to the default relative path
+	spaDir := m.cfg.SPADir
+	if spaDir == "" {
+		spaDir = "frontend_standalone/web/dist"
+	}
+	if _, err := os.Stat(spaDir); err == nil {
+		// Clone cfg so we can override SPADir without mutating the original
+		spaCfg := *m.cfg
+		spaCfg.SPADir = spaDir
+		m.serveSPAHandler = spa.ServeSPA(&spaCfg)
 	}
 	if m.serveSPAHandler == nil {
 		m.serveSPAHandler = func(c *gin.Context) {
