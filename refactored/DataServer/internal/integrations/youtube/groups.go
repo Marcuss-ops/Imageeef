@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -150,6 +151,62 @@ func (s *Service) GetGroup(name string) *ChannelGroup {
 	return s.groups[name]
 }
 
+// ResolveChannelByLanguage finds a channel in a group whose Language field matches
+// the requested language code. Returns the first matching AuthChannel or an error
+// if the group doesn't exist, no channels are found, or no channel has the requested language.
+func (s *Service) ResolveChannelByLanguage(groupName, language string) (*AuthChannel, error) {
+	if groupName == "" {
+		return nil, fmt.Errorf("group name is required")
+	}
+	if language == "" {
+		return nil, fmt.Errorf("language code is required")
+	}
+
+	group := s.GetGroup(groupName)
+	if group == nil {
+		return nil, fmt.Errorf("group '%s' not found", groupName)
+	}
+
+	if len(group.Channels) == 0 {
+		return nil, fmt.Errorf("group '%s' has no channels", groupName)
+	}
+
+	lang := strings.TrimSpace(strings.ToLower(language))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Phase 1: exact language match
+	for _, chID := range group.Channels {
+		if ch, exists := s.channels[chID]; exists {
+			if strings.EqualFold(strings.TrimSpace(ch.Language), lang) {
+				chCopy := *ch
+				return &chCopy, nil
+			}
+		}
+	}
+
+	// Phase 2: fallback to first channel that has no language set (unconfigured)
+	for _, chID := range group.Channels {
+		if ch, exists := s.channels[chID]; exists {
+			if strings.TrimSpace(ch.Language) == "" {
+				chCopy := *ch
+				return &chCopy, nil
+			}
+		}
+	}
+
+	// Phase 3: fallback to first channel in group (any channel)
+	for _, chID := range group.Channels {
+		if ch, exists := s.channels[chID]; exists {
+			chCopy := *ch
+			return &chCopy, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no channel found in group '%s' matching language '%s'", groupName, language)
+}
+
 // AuthChannelToChannel converts an AuthChannel to a public Channel
 func AuthChannelToChannel(ac *AuthChannel) *Channel {
 	if ac == nil {
@@ -160,6 +217,7 @@ func AuthChannelToChannel(ac *AuthChannel) *Channel {
 		Title:     ac.Title,
 		Thumbnail: ac.Thumbnail,
 		Notes:     ac.Name,
+		Language:  ac.Language,
 	}
 }
 

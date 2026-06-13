@@ -103,6 +103,9 @@ func RegisterYouTubeRoutes(rg gin.IRouter, h *YouTubeHandlers) {
 	// OAuth Start (initiating auth is fine, the callback is public)
 	rg.GET("/oauth/start", h.StartOAuth)
 
+	// Resolve channel by language
+	rg.GET("/resolve-channel", h.ResolveChannelByLanguage)
+
 	// Status
 	rg.GET("/credentials/health", h.GetHealth)
 	rg.GET("/credentials/quota", h.GetQuota)

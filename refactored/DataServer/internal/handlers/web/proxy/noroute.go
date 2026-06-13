@@ -56,27 +56,38 @@ func NoRouteHandler(serveSPA gin.HandlerFunc, landing gin.HandlerFunc, darkEdito
 			}
 		}
 
-		// GET/HEAD requests for root or SPA routes: serve SPA or landing page
-		if (c.Request.Method == "GET" || c.Request.Method == "HEAD") && serveSPA != nil {
-			serveSPA(c)
-			// Check if SPA signaled that file was not found
-			if spaNotFound, exists := c.Get("spa_file_not_found"); exists && spaNotFound.(bool) {
-				atomic.AddInt64(&blockedRequests, 1)
-				c.JSON(http.StatusNotFound, gin.H{
-					"error": "resource not found",
-					"path":  path,
-				})
+		// GET/HEAD requests: try SPA first, fall back to landing page for root
+		if c.Request.Method == "GET" || c.Request.Method == "HEAD" {
+			isRoot := path == "/" || path == ""
+
+			// Try SPA handler if available (real or noop)
+			if serveSPA != nil {
+				serveSPA(c)
+				// If SPA wrote a response, we're done
+				if c.Writer.Size() >= 0 {
+					if !c.IsAborted() {
+						// Check if SPA signaled that file was not found
+						if spaNotFound, exists := c.Get("spa_file_not_found"); exists && spaNotFound.(bool) {
+							atomic.AddInt64(&blockedRequests, 1)
+							c.JSON(http.StatusNotFound, gin.H{
+								"error": "resource not found",
+								"path":  path,
+							})
+							return
+						}
+						atomic.AddInt64(&goHandledRequests, 1)
+					}
+					return
+				}
+				// SPA wrote nothing (noop handler) — fall through to landing page for root
+			}
+
+			// Fallback: landing page for root path
+			if isRoot && landing != nil {
+				atomic.AddInt64(&goHandledRequests, 1)
+				landing(c)
 				return
 			}
-			atomic.AddInt64(&goHandledRequests, 1)
-			return
-		}
-
-		// Landing page for root
-		if (path == "/" || path == "") && landing != nil && (c.Request.Method == "GET" || c.Request.Method == "HEAD") {
-			atomic.AddInt64(&goHandledRequests, 1)
-			landing(c)
-			return
 		}
 
 		// All other unmatched routes: return 404

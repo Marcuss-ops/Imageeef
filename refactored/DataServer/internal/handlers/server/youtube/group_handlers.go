@@ -9,6 +9,47 @@ import (
 	"velox-server/internal/integrations/youtube"
 )
 
+// ResolveChannelByLanguage resolves a channel in a group by language code
+// GET /api/v1/youtube/resolve-channel?group=amish&language=en
+func (h *YouTubeHandlers) ResolveChannelByLanguage(c *gin.Context) {
+	groupName := c.Query("group")
+	language := c.Query("language")
+
+	if groupName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "group query parameter is required"})
+		return
+	}
+	if language == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "language query parameter is required"})
+		return
+	}
+
+	ch, err := h.service.ResolveChannelByLanguage(groupName, language)
+	if err != nil {
+		// Map known errors to appropriate status codes
+		status := http.StatusNotFound
+		if err.Error() == "group name is required" || err.Error() == "language code is required" {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok": true,
+		"channel": gin.H{
+			"id":        ch.ID,
+			"title":     ch.Title,
+			"name":      ch.Name,
+			"thumbnail": ch.Thumbnail,
+			"language":  ch.Language,
+			"email":     ch.Email,
+		},
+		"group":    groupName,
+		"language": language,
+	})
+}
+
 // ListGroups lists all upload channel groups with channel details
 // GET /api/v1/youtube/groups
 // Now reads from the unified Storage (shared with YouTubeManager) instead of Service.groups.
