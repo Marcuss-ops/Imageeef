@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"velox-worker-agent/internal/telemetry"
 	"velox-worker-agent/pkg/api"
 	"velox-worker-agent/pkg/logger"
 )
@@ -58,6 +59,9 @@ func (w *Worker) register(ctx context.Context) error {
 
 	logger.LogRegisterSuccess(w.config.WorkerID, w.config.MasterURL)
 
+	// Mark worker as registered for the /health endpoint
+	telemetry.SetHealthRegistered(true)
+
 	// Log whether we received an auth token for future requests
 	token := w.apiClient.AuthToken()
 	if token != "" {
@@ -72,6 +76,7 @@ func (w *Worker) register(ctx context.Context) error {
 // unregister unregisters the worker from the master server.
 func (w *Worker) unregister(ctx context.Context) error {
 	w.logger.Debug("Unregistering from master...")
+	telemetry.SetHealthRegistered(false)
 	return w.apiClient.UnregisterWorker(ctx, w.config.WorkerID)
 }
 

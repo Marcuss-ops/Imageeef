@@ -54,9 +54,9 @@ COPY native/worker-agent-go/bin/velox-worker-agent /usr/local/bin/velox-worker-a
 RUN useradd -r -m -s /usr/sbin/nologin velox && \
     chown -R velox:velox /app /usr/local/bin/velox-worker-agent
 
-# Health check via worker agent HTTP endpoint
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Health check: verify worker agent HTTP endpoint is responding
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD curl -sf http://localhost:8081/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/worker-entrypoint.sh"]
 CMD ["-master", "http://master:8000"]

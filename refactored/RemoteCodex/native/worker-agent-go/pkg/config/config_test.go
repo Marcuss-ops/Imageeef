@@ -45,6 +45,10 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.LogLevel != "debug" {
 		t.Errorf("Expected log_level debug, got %s", cfg.LogLevel)
 	}
+
+	if cfg.HealthPort != 8081 {
+		t.Errorf("Expected default health_port 8081 for legacy config, got %d", cfg.HealthPort)
+	}
 }
 
 // TestLoadConfigNotFound tests loading a non-existent config file.
@@ -184,6 +188,10 @@ func TestDefaultConfig(t *testing.T) {
 
 	if cfg.LogLevel != "info" {
 		t.Errorf("Expected default log_level info, got %s", cfg.LogLevel)
+	}
+
+	if cfg.HealthPort != 8081 {
+		t.Errorf("Expected default health_port 8081, got %d", cfg.HealthPort)
 	}
 
 }

@@ -233,7 +233,7 @@ func (r *DataLayerAuditResult) FailOnError() error {
 		for _, w := range r.Warnings {
 			sb.WriteString(fmt.Sprintf("  WARNING: %s\n", w))
 		}
-		return fmt.Errorf(sb.String())
+		return fmt.Errorf("%s", sb.String())
 	}
 	return nil
 }

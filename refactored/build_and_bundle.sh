@@ -25,7 +25,7 @@ ok()   { echo -e "${GREEN}[  OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail() { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
-while [[ 0 -gt 0 ]]; do
+while [[ $# -gt 0 ]]; do
     case $1 in
         --version)      VERSION="$2"; shift 2 ;;
         --skip-engine)  SKIP_ENGINE=true; shift ;;
@@ -98,11 +98,24 @@ fi
 ok "SHA256: ${BUNDLE_HASH:0:16}..."
 
 # Step 6: Write BUNDLE_HASH.txt
-log "Writing BUNDLE_HASH.txt..."
+# Compute a deterministic content hash from all source files (excluding build artifacts)
+log "Writing BUNDLE_HASH.txt (content-based)..."
 if ! $DRY_RUN; then
-    echo -n "$BUNDLE_HASH" > "$BUNDLE_DIR/BUNDLE_HASH.txt"
+    SOURCE_HASH=$(cd "$SCRIPT_DIR" && find RemoteCodex \
+        -type f \
+        ! -path '*/bin/*' \
+        ! -path '*/build/*' \
+        ! -path '*/.git/*' \
+        ! -name BUNDLE_HASH.txt \
+        -print0 |
+        sort -z |
+        xargs -0 sha256sum 2>/dev/null |
+        sha256sum | awk '{print $1}')
+    echo -n "$SOURCE_HASH" > "$SCRIPT_DIR/RemoteCodex/BUNDLE_HASH.txt"
+    ok "BUNDLE_HASH.txt written (content hash: ${SOURCE_HASH:0:16}...)"
+else
+    log "[DRY-RUN] Would write content-based BUNDLE_HASH.txt"
 fi
-ok "BUNDLE_HASH.txt written"
 
 # Step 7: Write VERSION.txt
 log "Writing VERSION.txt..."

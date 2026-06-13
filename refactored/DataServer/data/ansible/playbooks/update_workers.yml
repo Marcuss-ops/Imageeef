@@ -84,36 +84,10 @@
           ⚠️  Dockerfile non trovato in {{ velox_dir }}/current/RemoteCodex/native/worker-agent-go/
           {% endif %}
 
-    # ── RICOSTRUISCI DOCKER IMAGE ────────────────────────────
-    - name: Update | Ricostruisci immagine Docker worker
-      ansible.builtin.shell: |
-        set -e
-        DOCKERFILE="{{ velox_dir }}/current/RemoteCodex/native/worker-agent-go/Dockerfile"
-        if [ ! -f "$DOCKERFILE" ]; then
-          DOCKERFILE="{{ velox_dir }}/current/refactored/RemoteCodex/native/worker-agent-go/Dockerfile"
-        fi
-        if [ ! -f "$DOCKERFILE" ]; then
-          echo "Dockerfile non trovato — salto build Docker"
-          exit 0
-        fi
-        CONTEXT="$(dirname "$DOCKERFILE")"
-        if /usr/bin/docker buildx version >/dev/null 2>&1; then
-          export DOCKER_BUILDKIT=1
-        fi
-        /usr/bin/docker build \
-          -f "$DOCKERFILE" \
-          -t velox-worker:latest \
-          "$CONTEXT"
-        echo "Docker image rebuilt successfully"
-      args:
-        executable: /bin/bash
-      register: docker_build
-      changed_when: "'successfully' in (docker_build.stdout | default(''))"
-      failed_when: false
-
     # ── RIAPPLICA PIPELINE SYSTEMD AGGIORNATA ────────────────
-    # L'update non deve limitarsi a rebuild/restart: i nodi vecchi devono
-    # ricevere anche la stessa unit/service pipeline usata dall'install.
+    # L'include di systemd_setup.yml gestisce: env file, Docker build
+    # (sempre, con --pull), generazione config, systemd unit, watchdog.
+    # Non serve un build Docker separato qui.
     - name: Update | Riapplica setup systemd worker aggiornato
       ansible.builtin.include_tasks:
         file: tasks/systemd_setup.yml

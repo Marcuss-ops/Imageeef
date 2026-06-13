@@ -31,28 +31,6 @@
       VELOX_WORKER_PROTOCOL_VERSION={{ worker_protocol_version | default('2026-06-worker-v1') }}
       VELOX_ENGINE_VERSION={{ engine_version | default(version_number | default('v1.0.6')) }}
 
-- name: Ensure worker config exists and disables Prometheus metrics
-  ansible.builtin.shell: |
-    set -euo pipefail
-    CFG=/tmp/velox-worker/worker_config.json
-    mkdir -p /tmp/velox-worker
-    if [ ! -f "$CFG" ]; then
-      /usr/local/bin/velox-worker-agent -generate-config -config "$CFG" -work-dir /app/RemoteCodex >/dev/null
-    fi
-    python3 - <<'PY'
-    import json
-    from pathlib import Path
-
-    cfg_path = Path("/tmp/velox-worker/worker_config.json")
-    data = json.loads(cfg_path.read_text())
-    data["prometheus_port"] = 0
-    cfg_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    PY
-  args:
-    executable: /bin/bash
-  register: worker_config_patch
-  changed_when: true
-
 - name: Detect current bundle layout (legacy refactored vs flat)
   ansible.builtin.stat:
     path: "{{ velox_dir }}/current/refactored/RemoteCodex/native/worker-agent-go/Dockerfile"
@@ -90,17 +68,13 @@
         )
       }}
 
-- name: Ensure velox-worker Docker image (reuse installer build when available)
+- name: Ensure velox-worker Docker image (always rebuild to pick up Go agent updates)
   ansible.builtin.shell: |
     set -e
-    if /usr/bin/docker image inspect velox-worker:latest >/dev/null 2>&1; then
-      echo "Image velox-worker:latest already present (skip rebuild)"
-      exit 0
-    fi
     DOCKERFILE="{{ velox_worker_dockerfile_host }}"
     CONTEXT="{{ velox_worker_docker_context }}"
     if [ -z "$DOCKERFILE" ] || [ -z "$CONTEXT" ]; then
-      echo "Dockerfile.worker missing and velox-worker:latest not present"
+      echo "Dockerfile.worker missing — cannot build"
       exit 1
     fi
     if [ ! -f "$DOCKERFILE" ]; then
@@ -111,6 +85,7 @@
       export DOCKER_BUILDKIT=1
     fi
     /usr/bin/docker build \
+      --pull \
       -f "$DOCKERFILE" \
       -t velox-worker:latest \
       "$CONTEXT"
@@ -125,6 +100,34 @@
 - name: Log Docker image preparation result
   ansible.builtin.debug:
     msg: "{{ worker_image_build.stdout | default('no output') }}"
+
+# ── Config generation AFTER Docker build (needs velox-worker:latest image) ──
+- name: Ensure worker config exists and disables Prometheus metrics
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CFG=/tmp/velox-worker/worker_config.json
+    mkdir -p /tmp/velox-worker
+    if [ ! -f "$CFG" ]; then
+      /usr/bin/docker run --rm \
+        --user root \
+        --entrypoint /usr/local/bin/velox-worker-agent \
+        -v /tmp/velox-worker:/tmp/velox-worker \
+        velox-worker:latest \
+        -generate-config -config "$CFG" -work-dir /app/RemoteCodex >/dev/null
+    fi
+    python3 - <<'PY'
+    import json
+    from pathlib import Path
+
+    cfg_path = Path("/tmp/velox-worker/worker_config.json")
+    data = json.loads(cfg_path.read_text())
+    data["prometheus_port"] = 0
+    cfg_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    PY
+  args:
+    executable: /bin/bash
+  register: worker_config_patch
+  changed_when: true
 
 - name: Build velox-worker-console Docker image (optional)
   ansible.builtin.shell: |

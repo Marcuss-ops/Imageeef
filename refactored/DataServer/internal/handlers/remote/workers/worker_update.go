@@ -20,14 +20,14 @@ import (
 
 // WorkerUpdateHandler handles worker update pipeline operations
 type WorkerUpdateHandler struct {
-	cfg          *config.Config
-	reg          *workersreg.Registry
-	cmdMgr       *workersreg.CommandManager
-	updateMgr    *workersreg.UpdateManager
-	tokenMgr     *workersreg.TokenManager
-	dataDir      string
-	bundleDir    string
-	codeVersion  string
+	cfg         *config.Config
+	reg         *workersreg.Registry
+	cmdMgr      *workersreg.CommandManager
+	updateMgr   *workersreg.UpdateManager
+	tokenMgr    *workersreg.TokenManager
+	dataDir     string
+	bundleDir   string
+	codeVersion string
 }
 
 func (h *WorkerUpdateHandler) authorizeWorkerRequest(c *gin.Context, workerID string) bool {
@@ -57,19 +57,43 @@ type PendingUpdateState struct {
 }
 
 func bundleDirCandidates(dataDir string) []string {
+	add := func(out *[]string, seen map[string]struct{}, path string) {
+		if path == "" {
+			return
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		*out = append(*out, path)
+	}
+
+	candidates := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
 	if dataDir == "" {
-		return []string{"worker_downloads"}
+		add(&candidates, seen, "worker_downloads")
+		return candidates
 	}
-	base := filepath.Join(dataDir, "..", "..")
-	// Also try sibling data/worker_downloads relative to DataServer root
-	dataServerRoot := filepath.Join(dataDir, "..", "..")
-	return []string{
-		filepath.Join(base, "worker_downloads"),
-		filepath.Join(base, "BundleRemote", "worker_downloads"),
-		filepath.Join(base, "BundleRemote"),
-		filepath.Join(dataDir, "worker_downloads"),
-		filepath.Join(dataServerRoot, "data", "worker_downloads"),
+
+	runtimeDir := filepath.Dir(dataDir)
+	repoRoot := filepath.Dir(runtimeDir)
+
+	for _, root := range []string{
+		dataDir,
+		runtimeDir,
+		repoRoot,
+	} {
+		add(&candidates, seen, filepath.Join(root, "worker_downloads"))
+		add(&candidates, seen, filepath.Join(root, "BundleRemote", "worker_downloads"))
+		add(&candidates, seen, filepath.Join(root, "BundleRemote"))
+		add(&candidates, seen, filepath.Join(root, "DataServer", "data", "worker_downloads"))
+		add(&candidates, seen, filepath.Join(root, "refactored", "DataServer", "data", "worker_downloads"))
 	}
+
+	return candidates
 }
 
 func computeStringSHA256Hex(s string) string {
@@ -124,11 +148,13 @@ func findRepoRootFrom(start string) string {
 // NewWorkerUpdateHandler creates a new worker update handler
 func NewWorkerUpdateHandler(cfg *config.Config, reg *workersreg.Registry, cmdMgr *workersreg.CommandManager, updateMgr *workersreg.UpdateManager, tokenMgr *workersreg.TokenManager, dataDir string) *WorkerUpdateHandler {
 	bundleDir := cfg.WorkerBundleDir
+	if bundleDir != "" {
+		if _, err := os.Stat(filepath.Join(bundleDir, "worker_code.zip")); err != nil {
+			bundleDir = ""
+		}
+	}
 	if bundleDir == "" {
 		for _, d := range bundleDirCandidates(dataDir) {
-			if abs, err := filepath.Abs(d); err == nil {
-				d = abs
-			}
 			if _, err := os.Stat(filepath.Join(d, "worker_code.zip")); err == nil {
 				bundleDir = d
 				break
@@ -142,14 +168,14 @@ func NewWorkerUpdateHandler(cfg *config.Config, reg *workersreg.Registry, cmdMgr
 	log.Printf("[UPDATE] Using bundle directory: %s", bundleDir)
 
 	return &WorkerUpdateHandler{
-		cfg:          cfg,
-		reg:          reg,
-		cmdMgr:       cmdMgr,
-		updateMgr:    updateMgr,
-		tokenMgr:     tokenMgr,
-		dataDir:      dataDir,
-		bundleDir:    bundleDir,
-		codeVersion:  cfg.CodeVersion,
+		cfg:         cfg,
+		reg:         reg,
+		cmdMgr:      cmdMgr,
+		updateMgr:   updateMgr,
+		tokenMgr:    tokenMgr,
+		dataDir:     dataDir,
+		bundleDir:   bundleDir,
+		codeVersion: cfg.CodeVersion,
 	}
 }
 

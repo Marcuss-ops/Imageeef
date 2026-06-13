@@ -72,17 +72,51 @@
         state: directory
         mode: "0755"
 
-    # ── SYNC CODE FROM MASTER ───────────────────────────────
-    - name: Install | Synchronize worker code from master to host
+    # ── BUILD GO AGENT ON CONTROLLER (idempotent) ─────────────
+    - name: Install | Build Go worker agent on controller
+      ansible.builtin.shell: |
+        set -euo pipefail
+        AGENT_DIR="{{ playbook_dir }}/../../../../RemoteCodex/native/worker-agent-go"
+        BINARY="$AGENT_DIR/bin/velox-worker-agent"
+
+        # Skip build if binary exists and no .go source is newer than it
+        if [ -f "$BINARY" ]; then
+          NEWER=$(find "$AGENT_DIR" -name '*.go' -newer "$BINARY" -print -quit 2>/dev/null)
+          if [ -z "$NEWER" ]; then
+            echo "SKIP: binary up-to-date"
+            exit 0
+          fi
+        fi
+
+        cd "$AGENT_DIR"
+        make agent
+        echo "BUILT"
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: agent_build
+      changed_when: "'BUILT' in (agent_build.stdout | default(''))"
+
+    # ── SYNC CODE FROM CONTROLLER ─────────────────────────────
+    - name: Install | Ensure synchronized directory is writable
+      ansible.builtin.file:
+        path: "{{ velox_dir }}/current/refactored"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Install | Synchronize worker code from controller to host
       ansible.posix.synchronize:
-        src: /opt/velox/current/refactored/
-        dest: /opt/velox/current/refactored/
+        src: "{{ playbook_dir }}/../../../../"
+        dest: "{{ velox_dir }}/current/refactored/"
         delete: true
         rsync_opts:
           - "--exclude=.git"
           - "--exclude=secrets"
           - "--exclude=.velox"
-          - "--exclude=bin/velox-worker-agent"
           - "--exclude=bin/velox-server"
           - "--exclude=*.md"
       delegate_to: localhost

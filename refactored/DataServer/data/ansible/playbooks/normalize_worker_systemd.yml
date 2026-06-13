@@ -6,10 +6,9 @@
 #   - Unmask servizio velox-worker
 #   - Stop e disable di TUTTI i vecchi servizi (velox-worker-*.service)
 #   - Rimozione vecchie unit file e override directories
-#   - Scrittura di una sola unit ufficiale per ogni worker
-#   - Scrittura env file corretto
-#   - daemon-reload, enable, start
-#   - Verifica heartbeat sul master
+#   - include tasks/systemd_setup.yml (single source of truth)
+#     → env file, Docker build, config, systemd unit, watchdog, auto-update
+#   - Verifica stato + heartbeat sul master
 # ============================================================
 
 - name: Normalize worker systemd
@@ -99,94 +98,14 @@
       register: removed_dirs
       changed_when: "'Removed dir:' in (removed_dirs.stdout | default(''))"
 
-    # ── STEP 3: Scrivi env file corretto ──────────────────────
-    - name: Normalize | Write env file
-      ansible.builtin.copy:
-        dest: /etc/velox-worker.env
-        mode: "0600"
-        content: |
-          MASTER_URL={{ master_url }}
-          VELOX_HEARTBEAT_MASTERS={{ master_url }}{% if master_url_secondary is defined and master_url_secondary %},{{ master_url_secondary }}{% endif %}
-          VELOX_SECONDARY_MASTER_URL={% if master_url_secondary is defined and master_url_secondary %}{{ master_url_secondary }}{% else %}{% endif %}
-          WORKER_NAME={{ inventory_hostname }}
-          VELOX_WORKER_ID={{ worker_id | default(inventory_hostname) }}
-          VELOX_DIR={{ velox_dir }}
-          VELOX_BUNDLE_VERSION={{ version_number | default('v1.0.6') }}
-          VELOX_VERSION_NUMBER={{ version_number | default('v1.0.6') }}
-          VELOX_CODE_VERSION={{ version_number | default('v1.0.6') }}
-          VELOX_BUNDLE_HASH={{ bundle_hash | default('') }}
-          VELOX_WORKER_PROTOCOL_VERSION={{ worker_protocol_version | default('2026-06-worker-v1') }}
-          VELOX_ENGINE_VERSION={{ engine_version | default(version_number | default('v1.0.6')) }}
-
-    # ── STEP 4: Assicura directory ────────────────────────────
-    - name: Normalize | Ensure worker directories exist
-      ansible.builtin.file:
-        path: "{{ velox_dir }}/{{ item }}"
-        state: directory
-        mode: "0755"
-      loop:
-        - current
-        - cache
-        - bin
-
-    # ── STEP 5: Scrivi unit file corretto ─────────────────────
-    - name: Normalize | Ensure override directory exists
-      ansible.builtin.file:
-        path: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service.d
-        state: directory
-        mode: "0755"
-
-    - name: Normalize | Create systemd service
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/velox-worker-{{ inventory_hostname }}.service
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Velox Worker - {{ inventory_hostname }}
-          After=network-online.target docker.service
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          EnvironmentFile=/etc/velox-worker.env
-          WorkingDirectory={{ velox_dir }}/current
-          ExecStartPre=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
-          ExecStartPre=/bin/sh -c 'mkdir -p /tmp/velox-worker && chmod 775 /tmp/velox-worker && [ -f /tmp/velox-worker/worker_config.json ] || /usr/bin/docker run --rm --user root --entrypoint /usr/local/bin/velox-worker-agent -v /tmp/velox-worker:/tmp/velox-worker velox-worker:latest -generate-config -config /tmp/velox-worker/worker_config.json -work-dir /app/RemoteCodex'
-          ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host --env-file /etc/velox-worker.env -e VELOX_VIDEO_ENGINE_CPP_BIN=/usr/local/bin/velox_video_engine -v {{ velox_dir }}/current/refactored:/app -v {{ velox_dir }}/cache:/root/.cache -v {{ velox_dir }}/current/refactored/RemoteCodex/assets_cache:/app/RemoteCodex/assets_cache -v /tmp/velox-worker:/tmp/velox-worker velox-worker:latest -config /tmp/velox-worker/worker_config.json -master {{ master_url }} -worker-id {{ worker_id | default(inventory_hostname) }} -work-dir /app/RemoteCodex
-          ExecStop=/bin/sh -c '/usr/bin/docker stop -t 20 velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
-          ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
-          TimeoutStopSec=35
-          KillMode=control-group
-          SuccessExitStatus=137 143
-          Restart=always
-          RestartSec=5
-          StandardOutput=journal
-          StandardError=journal
-          SyslogIdentifier=velox-worker-{{ inventory_hostname }}
-
-          [Install]
-          WantedBy=multi-user.target
-
-    # ── STEP 6: daemon-reload + enable + start ────────────────
-    - name: Normalize | Daemon reload
-      ansible.builtin.systemd:
-        daemon_reload: true
-
-    - name: Normalize | Reset failed state
-      ansible.builtin.shell: systemctl reset-failed "velox-worker-{{ inventory_hostname }}" || true
-      args:
-        executable: /bin/bash
-      changed_when: false
-
-    - name: Normalize | Enable and start worker
-      ansible.builtin.systemd:
-        name: velox-worker-{{ inventory_hostname }}
-        enabled: true
-        state: started
-
-    - name: Normalize | Wait for service stabilization
-      ansible.builtin.pause:
-        seconds: 5
+    # ── STEP 3-6: Delega a systemd_setup.yml (single source of truth) ──
+    # Include: env file, Docker build, config gen, systemd unit,
+    #          console, watchdog, auto-update, daemon-reload, enable/start
+    - name: Normalize | Riapplica pipeline systemd completa
+      ansible.builtin.include_tasks:
+        file: tasks/systemd_setup.yml
+      vars:
+        install_showlog_wrapper: false
 
     # ── STEP 7: Verifica stato servizio ───────────────────────
     - name: Normalize | Check service status

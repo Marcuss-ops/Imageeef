@@ -51,8 +51,9 @@ func workerStatusMetadata(h *WorkerUpdateHandler) gin.H {
 	}
 	bundleHash := ""
 	if h != nil {
-		if bundlePath, _, err := resolveBundlePath(h.bundleDir, "linux", "x86_64"); err == nil {
-			bundleHash = computeFileSHA256(bundlePath)
+		bundleHash = h.ComputeBundleSHA256()
+		if bundleHash == "" {
+			bundleHash = computeBundleHashFromManifest(h.bundleDir)
 		}
 	}
 	return gin.H{

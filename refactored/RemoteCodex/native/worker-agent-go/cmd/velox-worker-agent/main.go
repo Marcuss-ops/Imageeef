@@ -247,7 +247,20 @@ func main() {
 	// Log startup with structured event
 	logger.LogStartup(cfg.WorkerID, Version, cfg.MasterURL)
 
-	// Phase 1: Start Prometheus metrics server (only if port > 0)
+	// Phase 1a: Start health server (for Docker HEALTHCHECK)
+	healthPort := cfg.HealthPort
+	if healthPort == 0 {
+		logger.Info("[HEALTH] Health server disabled (health_port=0)")
+	} else {
+		telemetry.SetHealthWorkerID(cfg.WorkerID)
+		if err := telemetry.StartHealthServer(healthPort); err != nil {
+			logger.Warn("[HEALTH] Health server failed: %v", err)
+		} else {
+			logger.Info("[HEALTH] Health server starting on :%d", healthPort)
+		}
+	}
+
+	// Phase 1b: Start Prometheus metrics server (only if port > 0)
 	prometheusPort := cfg.PrometheusPort
 	if prometheusPort == 0 {
 		logger.Info("[TELEMETRY] Prometheus metrics disabled (port=0)")

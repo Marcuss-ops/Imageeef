@@ -28,7 +28,8 @@ type WorkerConfig struct {
 	// Worker policy
 	MaxActiveJobs           int `json:"max_active_jobs"`            // Maximum concurrent active jobs (default: 1)
 	CommandPollIntervalSecs int `json:"command_poll_interval_secs"` // Command polling interval in seconds (default: 30)
-	PrometheusPort          int `json:"prometheus_port"`            // Prometheus metrics port (default: 9090)
+	PrometheusPort          int `json:"prometheus_port"`            // Prometheus metrics port (default: 9090, 0=disabled)
+	HealthPort              int `json:"health_port"`                // Health HTTP port (default: 8081, 0=disabled)
 
 	// Circuit breaker configuration
 	CircuitBreakerFailureThreshold int `json:"circuit_breaker_failure_threshold,omitempty"` // Failures to open circuit (default: 5)
@@ -51,6 +52,8 @@ func LoadConfig(path string) (*WorkerConfig, error) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
+
+	config.applyDefaults()
 
 	return &config, nil
 }
@@ -106,8 +109,20 @@ func DefaultConfig(workDir string) *WorkerConfig {
 		LogLevel:                "info",
 		BundleVersion:           "",
 		ProtocolVersion:         "2026-06-worker-v1",
-		MaxActiveJobs:           1,  // 1 main job per VPS
-		CommandPollIntervalSecs: 30, // Check for commands every 30 seconds
+		MaxActiveJobs:           1,    // 1 main job per VPS
+		CommandPollIntervalSecs: 30,   // Check for commands every 30 seconds
+		HealthPort:              8081, // Health HTTP endpoint for Docker HEALTHCHECK
+	}
+}
+
+// applyDefaults fills in backward-compatible defaults for fields that may be
+// missing from older config files.
+func (c *WorkerConfig) applyDefaults() {
+	if c == nil {
+		return
+	}
+	if c.HealthPort == 0 {
+		c.HealthPort = 8081
 	}
 }
 
