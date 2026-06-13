@@ -76,11 +76,19 @@ func (r *Registry) load() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Normalize worker IDs on load: handle legacy double-prefixed (host_host_)
+	// and dot-format (host_57.129.) IDs from older deployments.
 	if persisted.Workers != nil {
-		r.inMem = persisted.Workers
+		normalized := make(map[string]WorkerInfo, len(persisted.Workers))
+		for id, info := range persisted.Workers {
+			normID := NormalizeWorkerID(id)
+			info.WorkerID = normID
+			normalized[normID] = info
+		}
+		r.inMem = normalized
 	}
 	for _, id := range persisted.Revoked {
-		r.revoked[id] = true
+		r.revoked[NormalizeWorkerID(id)] = true
 	}
 }
 
@@ -136,6 +144,8 @@ func (r *Registry) save() error {
 
 func (r *Registry) Heartbeat(ctx context.Context, workerID, workerName, status, currentJob string, extra map[string]interface{}) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	workerID = NormalizeWorkerID(workerID)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -253,6 +263,7 @@ func (r *Registry) Heartbeat(ctx context.Context, workerID, workerName, status, 
 }
 
 func (r *Registry) IsRegistered(ctx context.Context, workerID string) bool {
+	workerID = NormalizeWorkerID(workerID)
 	if r.useRedis && r.redis != nil {
 		n, _ := r.redis.Exists(ctx, workerPrefix+workerID).Result()
 		return n > 0
@@ -297,6 +308,7 @@ func parseWorkerRedisFields(m map[string]string, info *WorkerInfo) {
 
 // GetWorker returns a single worker's info by ID
 func (r *Registry) GetWorker(ctx context.Context, workerID string) *WorkerInfo {
+	workerID = NormalizeWorkerID(workerID)
 	if r.useRedis && r.redis != nil {
 		m, err := r.redis.HGetAll(ctx, workerPrefix+workerID).Result()
 		if err != nil || len(m) == 0 {
@@ -364,6 +376,7 @@ func (r *Registry) List(ctx context.Context) []WorkerInfo {
 
 // RegisterWorker registers a new worker or updates an existing one
 func (r *Registry) RegisterWorker(ctx context.Context, workerID, workerName, ipAddress string, extra map[string]interface{}) error {
+	workerID = NormalizeWorkerID(workerID)
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	r.mu.Lock()
@@ -453,6 +466,7 @@ func (r *Registry) RegisterWorker(ctx context.Context, workerID, workerName, ipA
 
 // UnregisterWorker removes a worker from the registry
 func (r *Registry) UnregisterWorker(ctx context.Context, workerID string) error {
+	workerID = NormalizeWorkerID(workerID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -466,6 +480,7 @@ func (r *Registry) UnregisterWorker(ctx context.Context, workerID string) error 
 
 // IsRevoked checks if a worker has been revoked
 func (r *Registry) IsRevoked(workerID string) bool {
+	workerID = NormalizeWorkerID(workerID)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.revoked[workerID]
@@ -473,6 +488,7 @@ func (r *Registry) IsRevoked(workerID string) bool {
 
 // RevokeWorker marks a worker as revoked and removes it from the active set
 func (r *Registry) RevokeWorker(ctx context.Context, workerID string) {
+	workerID = NormalizeWorkerID(workerID)
 	r.mu.Lock()
 	r.revoked[workerID] = true
 	delete(r.inMem, workerID)
@@ -488,6 +504,7 @@ func (r *Registry) RevokeWorker(ctx context.Context, workerID string) {
 
 // UnrevokeWorker removes a worker from the revoked list
 func (r *Registry) UnrevokeWorker(workerID string) {
+	workerID = NormalizeWorkerID(workerID)
 	r.mu.Lock()
 	delete(r.revoked, workerID)
 	if err := r.save(); err != nil {
@@ -502,8 +519,9 @@ func (r *Registry) LoadRevoked(ids []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, id := range ids {
-		r.revoked[id] = true
-		delete(r.inMem, id)
+		normID := NormalizeWorkerID(id)
+		r.revoked[normID] = true
+		delete(r.inMem, normID)
 	}
 }
 
@@ -520,6 +538,7 @@ func (r *Registry) ListRevoked() []string {
 
 // UpdateWorker updates specific fields of a worker
 func (r *Registry) UpdateWorker(ctx context.Context, workerID string, updates map[string]interface{}) error {
+	workerID = NormalizeWorkerID(workerID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -687,6 +706,13 @@ func (r *Registry) GetSchedulableWorkers(ctx context.Context) []WorkerInfo {
 		}
 	}
 	return result
+}
+
+// Save persists the current registry state to disk immediately.
+func (r *Registry) Save() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.save()
 }
 
 // CleanupStaleWorkers removes workers that haven't sent a heartbeat in the given duration

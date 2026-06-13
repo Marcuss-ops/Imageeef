@@ -31,6 +31,11 @@ func formatSize(b int64) string {
 
 // computeBundleSHA256 computes SHA256 of the worker bundle
 func (h *WorkerUpdateHandler) computeBundleSHA256() string {
+	return h.ComputeBundleSHA256()
+}
+
+// ComputeBundleSHA256 computes SHA256 of the worker bundle (exported).
+func (h *WorkerUpdateHandler) ComputeBundleSHA256() string {
 	bundlePath := filepath.Join(h.bundleDir, "worker_code.zip")
 
 	file, err := os.Open(bundlePath)

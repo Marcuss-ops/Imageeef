@@ -118,8 +118,10 @@ func (w *VideoGenerationWorkflow) runNativeCxxEngine(
 }
 
 // resolveNativeVideoEngineBinary cerca il binary del C++ video engine.
-// Cerca prima in VELOX_VIDEO_ENGINE_CPP_BIN env var, poi in path canonici
-// relativi al source file del package.
+// Ordine di ricerca:
+//  1. VELOX_VIDEO_ENGINE_CPP_BIN env var
+//  2. /usr/local/bin/velox_video_engine (compiled inside Docker container)
+//  3. Path relativi al source (volume mount)
 func resolveNativeVideoEngineBinary() (string, error) {
 	if override := strings.TrimSpace(os.Getenv("VELOX_VIDEO_ENGINE_CPP_BIN")); override != "" {
 		if stat, err := os.Stat(override); err == nil && !stat.IsDir() {
@@ -127,17 +129,22 @@ func resolveNativeVideoEngineBinary() (string, error) {
 		}
 	}
 
+	// Prefer the container-local binary (compiled against container GLIBC)
+	candidates := []string{
+		"/usr/local/bin/velox_video_engine",
+	}
+
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		return "", fmt.Errorf("unable to locate native engine source path")
 	}
 	pkgDir := filepath.Dir(sourceFile)
-	candidates := []string{
+	candidates = append(candidates,
 		filepath.Join(pkgDir, "..", "..", "..", "video-engine-cpp", "build", "velox_video_engine"),
 		filepath.Join(pkgDir, "..", "..", "..", "video-engine-cpp", "velox_video_engine"),
 		filepath.Join(pkgDir, "..", "..", "..", "..", "video-engine-cpp", "build", "velox_video_engine"),
 		filepath.Join(pkgDir, "..", "..", "..", "..", "video-engine-cpp", "velox_video_engine"),
-	}
+	)
 
 	for _, candidate := range candidates {
 		cleaned := filepath.Clean(candidate)

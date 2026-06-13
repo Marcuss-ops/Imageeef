@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -192,10 +195,70 @@ func runServer(cfg *config.Config) error {
 		}()
 	}
 
-	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
-		log.Printf("[SERVER] TLS enabled (cert: %s, key: %s)", cfg.TLSCertFile, cfg.TLSKeyFile)
-		return srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+	// Zombie job reaper: requeue jobs with expired leases or stuck too long
+	if deps.fileQ != nil {
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				n, err := deps.fileQ.RequeueZombieJobs(context.Background(), 30*time.Minute)
+				if err != nil {
+					log.Printf("[ZOMBIE] requeue error: %v", err)
+				} else if n > 0 {
+					log.Printf("[ZOMBIE] requeued %d stuck jobs", n)
+				}
+			}
+		}()
 	}
 
-	return srv.ListenAndServe()
+	// Start server in a goroutine so shutdown can be handled gracefully
+	errChan := make(chan error, 1)
+	go func() {
+		var err error
+		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+			log.Printf("[SERVER] TLS enabled (cert: %s, key: %s)", cfg.TLSCertFile, cfg.TLSKeyFile)
+			err = srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
+			log.Printf("[SERVER] Listen error: %v", err)
+		}
+		errChan <- err
+	}()
+
+	// Wait for interrupt signal or startup failure
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errChan:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
+	case <-quit:
+		log.Println("[SERVER] Shutdown signal received, shutting down gracefully...")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[SERVER] Graceful shutdown failed: %v", err)
+		return err
+	}
+
+	// Flush registry and close database before exit
+	if deps.reg != nil {
+		if err := deps.reg.Save(); err != nil {
+			log.Printf("[SERVER] Registry flush failed: %v", err)
+		}
+	}
+	if deps.sqliteStore != nil {
+		if err := deps.sqliteStore.Close(); err != nil {
+			log.Printf("[SERVER] Store close failed: %v", err)
+		}
+	}
+
+	log.Println("[SERVER] Server stopped")
+	return nil
 }

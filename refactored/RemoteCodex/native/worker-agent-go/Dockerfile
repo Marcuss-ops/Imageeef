@@ -1,8 +1,8 @@
 # ============================================================================
-# Velox Worker - Single-stage Build
+# Velox Worker - Multi-stage Build
 # ============================================================================
-# Runtime minimale con ffmpeg + cmake per compilazione C++ nativa.
-# Il binario Go va precompilato con 'make agent' prima del docker build.
+# Stage 1: Builder — compiles C++ video engine against Debian 12 GLIBC 2.36
+# Stage 2: Runtime — minimal image with ffmpeg + compiled engine binary
 #
 # Build:
 #   cd RemoteCodex/native/worker-agent-go
@@ -11,45 +11,74 @@
 #
 # ============================================================================
 
-FROM debian:bookworm-slim
+# ── STAGE 1: Builder ───────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-WORKDIR /app
-
-# Dipendenze essenziali: ffmpeg per video, cmake/g++ per rebuild video engine,
-# curl per comunicazioni HTTP, build-essential per compilazione C++ nativa.
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     g++ \
+    pkg-config \
+    ca-certificates \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy C++ engine source and build script (paths relative to RemoteCodex/ build context)
+COPY scripts/build-video-engine.sh /usr/local/bin/build-video-engine.sh
+COPY native/video-engine-cpp /build/native/video-engine-cpp
+
+RUN chmod +x /usr/local/bin/build-video-engine.sh && \
+    VELOX_VIDEO_ENGINE_SRC=/build/native/video-engine-cpp \
+    VELOX_VIDEO_ENGINE_OUT=/usr/local/bin/velox_video_engine \
+    /usr/local/bin/build-video-engine.sh
+
+# Verify the binary is linked against container GLIBC
+RUN echo "=== Builder GLIBC ===" && \
+    getconf GNU_LIBC_VERSION && \
+    echo "=== Engine binary ===" && \
+    ls -lh /usr/local/bin/velox_video_engine && \
+    file /usr/local/bin/velox_video_engine && \
+    echo "=== Engine ldd ===" && \
+    ldd /usr/local/bin/velox_video_engine && \
+    echo "=== Max GLIBC symbol ===" && \
+    strings /usr/local/bin/velox_video_engine | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -n 5
+
+# ── STAGE 2: Runtime ───────────────────────────────────────────────────────
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV VELOX_VIDEO_ENGINE_BIN=/usr/local/bin/velox_video_engine
+
+WORKDIR /app
+
+# Runtime dependencies only: ffmpeg + minimal C++ runtime
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     ca-certificates \
+    libstdc++6 \
+    libc6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia il binario precompilato (make agent deve essere stato eseguito prima del docker build)
-# Nota: Docker mostra giÃ  un errore chiaro se il file non esiste nel build context:
-#   COPY failed: file not found in build context: stat bin/velox-worker-agent: file does not exist
-COPY bin/velox-worker-agent /usr/local/bin/velox-worker-agent
+# Copy compiled engine from builder stage
+COPY --from=builder /usr/local/bin/velox_video_engine /usr/local/bin/velox_video_engine
+RUN chmod +x /usr/local/bin/velox_video_engine
+
+# Copy Go worker agent binary (relative to RemoteCodex/ build context)
+COPY native/worker-agent-go/bin/velox-worker-agent /usr/local/bin/velox-worker-agent
 
 # Create non-root user for runtime
 RUN useradd -r -m -s /usr/sbin/nologin velox && \
-    chown -R velox:velox /app /usr/local/bin/velox-worker-agent
+    chown -R velox:velox /app /usr/local/bin/velox-worker-agent /usr/local/bin/velox_video_engine
 
 USER velox
 
-# ============================================================================
-# Worker leggero: Go binary + ffmpeg + cmake/build-essential.
-# Nessun Node.js, nessun Remotion, nessuna libreria Chrome/GTK.
-# Il motore grafico C++ nativo viene compilato al primo avvio del container
-# tramite cmake (presente nell'immagine).
-# ============================================================================
-
-# Health check via HTTP endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Default: Go worker-agent-go
 ENTRYPOINT ["/usr/local/bin/velox-worker-agent"]
 CMD ["--master", "http://master:8000"]

@@ -160,6 +160,9 @@ func main() {
 	if *logLevel != "" {
 		cfg.LogLevel = *logLevel
 	}
+	if envWorkerID := os.Getenv("VELOX_WORKER_ID"); envWorkerID != "" {
+		cfg.WorkerID = envWorkerID
+	}
 	if bundleVersion := os.Getenv("VELOX_BUNDLE_VERSION"); bundleVersion != "" {
 		cfg.BundleVersion = bundleVersion
 	}
@@ -172,6 +175,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Normalize worker_id to prevent double host_ prefixes and dot-format IDs
+	cfg.WorkerID = config.NormalizeWorkerID(cfg.WorkerID)
+	logger.Info("[WORKER_ID] Normalized worker ID: %s", cfg.WorkerID)
 
 	// Save config if it's new (ensures worker_id is persisted)
 	if _, err := os.Stat(*configPath); os.IsNotExist(err) {
@@ -240,17 +247,18 @@ func main() {
 	// Log startup with structured event
 	logger.LogStartup(cfg.WorkerID, Version, cfg.MasterURL)
 
-	// Phase 1: Start Prometheus metrics server
-	prometheusPort := 9090 // Default Prometheus port
-	if cfg.PrometheusPort > 0 {
-		prometheusPort = cfg.PrometheusPort
+	// Phase 1: Start Prometheus metrics server (only if port > 0)
+	prometheusPort := cfg.PrometheusPort
+	if prometheusPort == 0 {
+		logger.Info("[TELEMETRY] Prometheus metrics disabled (port=0)")
+	} else {
+		go func() {
+			if err := telemetry.StartPrometheusServer(prometheusPort); err != nil {
+				logger.Warn("Prometheus server failed: %v", err)
+			}
+		}()
+		logger.Info("[TELEMETRY] Prometheus metrics server starting on :%d", prometheusPort)
 	}
-	go func() {
-		if err := telemetry.StartPrometheusServer(prometheusPort); err != nil {
-			logger.Warn("Prometheus server failed: %v", err)
-		}
-	}()
-	logger.Info("[TELEMETRY] Prometheus metrics server starting on :%d", prometheusPort)
 
 	// Start worker
 	if err := w.Start(ctx); err != nil {

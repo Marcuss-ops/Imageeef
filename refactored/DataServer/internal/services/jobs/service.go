@@ -13,12 +13,18 @@ import (
 
 // Service holds job read/use-case logic that should stay outside HTTP handlers.
 type Service struct {
-	cfg      *config.Config
-	fileQ    *queue.FileQueue
-	redisQ   *queue.Queue
-	jobsRepo store.JobsRepository
-	logger   *queue.EventLogger
-	reg      *workers.Registry
+	cfg              *config.Config
+	fileQ            *queue.FileQueue
+	redisQ           *queue.Queue
+	jobsRepo         store.JobsRepository
+	logger           *queue.EventLogger
+	reg              *workers.Registry
+	masterBundleHash string
+}
+
+// SetMasterBundleHash sets the current master bundle hash for compatibility checks.
+func (s *Service) SetMasterBundleHash(hash string) {
+	s.masterBundleHash = hash
 }
 
 type ClaimRequest struct {
@@ -27,6 +33,7 @@ type ClaimRequest struct {
 	ClientIP    string
 	Drain       bool
 	Schedulable bool
+	JobType     string
 }
 
 type ClaimResult struct {
@@ -122,7 +129,7 @@ func (s *Service) ClaimNextJob(ctx context.Context, req ClaimRequest) (*ClaimRes
 
 	// Worker compatibility check: reject if protocol/bundle/capabilities mismatch
 	if workerInfo != nil {
-		if reason := s.checkWorkerCompatibility(ctx, workerInfo, ""); reason != "" {
+		if reason := s.checkWorkerCompatibility(ctx, workerInfo, req.JobType); reason != "" {
 			return &ClaimResult{Reason: "Worker incompatible: " + reason}, nil
 		}
 	}

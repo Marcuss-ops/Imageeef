@@ -87,6 +87,11 @@ func registerAPIV1Routes(r *gin.Engine, cfg *config.Config, deps *serverDeps, an
 	jobRepo := store.NewSQLiteJobsRepository(deps.sqliteStore)
 	tokenMgr := deps.workerLifecycle.GetTokenManager()
 	jobSvc := jobservice.NewService(cfg, deps.fileQ, deps.redisQ, jobRepo, nil, deps.reg)
+	if deps.workerUpdateHandler != nil {
+		if hash := deps.workerUpdateHandler.ComputeBundleSHA256(); hash != "" {
+			jobSvc.SetMasterBundleHash(hash)
+		}
+	}
 	jobAPI := jobhandlers.NewJobAPI(cfg, deps.fileQ, tokenMgr, jobSvc)
 	jobSubmitHandler := jobhandlers.NewJobSubmissionHandler(cfg, deps.fileQ)
 	api.RegisterV1Routes(r, cfg, deps.fileQ, deps.redisQ, deps.reg, jobAPI, jobSubmitHandler, deps.workersRepo, deps.sqliteStore, deps.workerUpdateHandler, deps.workerLifecycle, ansibleHandlers)

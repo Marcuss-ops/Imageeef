@@ -120,3 +120,55 @@ func TestCheckWorkerCompatibility_EmptySupportedJobTypesSkipsCheck(t *testing.T)
 		t.Fatalf("expected compatible when no supported_job_types defined, got: %s", reason)
 	}
 }
+
+func TestCheckWorkerCompatibility_MissingBundleHash(t *testing.T) {
+	s := &Service{cfg: &config.Config{}, masterBundleHash: "abc123"}
+	worker := &workers.WorkerInfo{
+		WorkerID:        "test-worker",
+		ProtocolVersion: workers.DefaultWorkerProtocolVersion,
+		BundleHash:      "",
+		Capabilities:    map[string]interface{}{"supported_job_types": []interface{}{"health_check"}},
+	}
+	if reason := s.checkWorkerCompatibility(context.Background(), worker, ""); reason != "" {
+		t.Fatalf("expected compatible (warning only), got: %s", reason)
+	}
+}
+
+func TestCheckWorkerCompatibility_BundleHashMismatch(t *testing.T) {
+	s := &Service{cfg: &config.Config{}, masterBundleHash: "abc123"}
+	worker := &workers.WorkerInfo{
+		WorkerID:        "test-worker",
+		ProtocolVersion: workers.DefaultWorkerProtocolVersion,
+		BundleHash:      "wrong_hash",
+		Capabilities:    map[string]interface{}{"supported_job_types": []interface{}{"health_check"}},
+	}
+	if reason := s.checkWorkerCompatibility(context.Background(), worker, ""); reason != "" {
+		t.Fatalf("expected compatible (warning only), got: %s", reason)
+	}
+}
+
+func TestCheckWorkerCompatibility_BundleHashMatch(t *testing.T) {
+	s := &Service{cfg: &config.Config{}, masterBundleHash: "abc123"}
+	worker := &workers.WorkerInfo{
+		WorkerID:        "test-worker",
+		ProtocolVersion: workers.DefaultWorkerProtocolVersion,
+		BundleHash:      "abc123",
+		Capabilities:    map[string]interface{}{"supported_job_types": []interface{}{"health_check"}},
+	}
+	if reason := s.checkWorkerCompatibility(context.Background(), worker, ""); reason != "" {
+		t.Fatalf("expected compatible with matching bundle_hash, got: %s", reason)
+	}
+}
+
+func TestCheckWorkerCompatibility_NoMasterHashSkipsCheck(t *testing.T) {
+	s := &Service{cfg: &config.Config{}, masterBundleHash: ""}
+	worker := &workers.WorkerInfo{
+		WorkerID:        "test-worker",
+		ProtocolVersion: workers.DefaultWorkerProtocolVersion,
+		BundleHash:      "",
+		Capabilities:    map[string]interface{}{"supported_job_types": []interface{}{"health_check"}},
+	}
+	if reason := s.checkWorkerCompatibility(context.Background(), worker, ""); reason != "" {
+		t.Fatalf("expected compatible when master has no bundle_hash, got: %s", reason)
+	}
+}

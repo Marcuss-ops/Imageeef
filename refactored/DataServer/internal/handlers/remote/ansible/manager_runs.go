@@ -204,8 +204,15 @@ func splitRequestedHosts(hosts string) []string {
 }
 
 func sanitizeInventoryAlias(v string) string {
+	trimmed := strings.TrimSpace(v)
+	// Strip ALL leading "host_" prefixes to make the function idempotent.
+	// Without this loop host_host_57_129_132_133 → TrimPrefix → host_57_129_132_133
+	// → prepend host_ → host_host_57_129_132_133 (still double).
+	for strings.HasPrefix(trimmed, "host_") {
+		trimmed = strings.TrimPrefix(trimmed, "host_")
+	}
 	replacer := strings.NewReplacer(".", "_", "-", "_", ":", "_", " ", "_", "/", "_")
-	return "host_" + replacer.Replace(strings.TrimSpace(v))
+	return "host_" + replacer.Replace(trimmed)
 }
 
 func buildExtraVars(vars map[string]interface{}) []string {
@@ -328,7 +335,7 @@ func (m *AnsibleRunManager) writeInventoryFile(hosts []string) (string, map[stri
 			lines = append(lines, fmt.Sprintf("          ansible_ssh_private_key_file: %s", c.SSHKeyPath))
 		}
 		if c.WorkerID != "" {
-			lines = append(lines, fmt.Sprintf("          worker_id: %s", c.WorkerID))
+			lines = append(lines, fmt.Sprintf("          worker_id: %s", sanitizeInventoryAlias(c.WorkerID)))
 		} else {
 			lines = append(lines, fmt.Sprintf("          worker_id: %s", alias))
 		}

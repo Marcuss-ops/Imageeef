@@ -18,7 +18,7 @@
   vars:
     velox_dir: "/opt/velox"
     master_url: "{{ master_url | default('http://127.0.0.1:8000') }}"
-    version_number: "{{ lookup('file', playbook_dir + '/../../../../VERSION.txt') | trim }}"
+    version_number: "{{ lookup('file', playbook_dir + '/../../../../../VERSION.txt') | trim }}"
 
   tasks:
     # ── STEP 1: Pulizia servizi vecchi ────────────────────────
@@ -113,6 +113,10 @@
           VELOX_DIR={{ velox_dir }}
           VELOX_BUNDLE_VERSION={{ version_number | default('v1.0.6') }}
           VELOX_VERSION_NUMBER={{ version_number | default('v1.0.6') }}
+          VELOX_CODE_VERSION={{ version_number | default('v1.0.6') }}
+          VELOX_BUNDLE_HASH={{ bundle_hash | default('') }}
+          VELOX_WORKER_PROTOCOL_VERSION={{ worker_protocol_version | default('2026-06-worker-v1') }}
+          VELOX_ENGINE_VERSION={{ engine_version | default(version_number | default('v1.0.6')) }}
 
     # ── STEP 4: Assicura directory ────────────────────────────
     - name: Normalize | Ensure worker directories exist
@@ -147,7 +151,8 @@
           EnvironmentFile=/etc/velox-worker.env
           WorkingDirectory={{ velox_dir }}/current
           ExecStartPre=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
-          ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host -e VELOX_BUNDLE_VERSION -e VELOX_VERSION_NUMBER -e WORKER_NAME -e VELOX_WORKER_ID -v {{ velox_dir }}/current/refactored:/app -v {{ velox_dir }}/cache:/root/.cache --entrypoint /bin/sh velox-worker:latest -lc 'CFG=/tmp/velox-worker/worker_config.json; mkdir -p /tmp/velox-worker; [ -f "$CFG" ] || /usr/local/bin/velox-worker-agent -generate-config -config "$CFG" -work-dir /app/RemoteCodex; exec /usr/local/bin/velox-worker-agent -config "$CFG" -master $MASTER_URL -worker-id $VELOX_WORKER_ID -work-dir /app/RemoteCodex'
+          ExecStartPre=/bin/sh -c 'mkdir -p /tmp/velox-worker && chmod 775 /tmp/velox-worker && [ -f /tmp/velox-worker/worker_config.json ] || /usr/bin/docker run --rm --user root -v /tmp/velox-worker:/tmp/velox-worker velox-worker:latest -generate-config -config /tmp/velox-worker/worker_config.json -work-dir /app/RemoteCodex'
+          ExecStart=/usr/bin/docker run --name velox-worker-{{ inventory_hostname }} --rm --network host -e VELOX_BUNDLE_VERSION -e VELOX_VERSION_NUMBER -e VELOX_VIDEO_ENGINE_CPP_BIN=/usr/local/bin/velox_video_engine -v {{ velox_dir }}/current/refactored:/app -v {{ velox_dir }}/cache:/root/.cache -v {{ velox_dir }}/current/refactored/RemoteCodex/assets_cache:/app/RemoteCodex/assets_cache -v /tmp/velox-worker:/tmp/velox-worker velox-worker:latest -config /tmp/velox-worker/worker_config.json -master {{ master_url }} -worker-id {{ worker_id | default(inventory_hostname) }} -work-dir /app/RemoteCodex
           ExecStop=/bin/sh -c '/usr/bin/docker stop -t 20 velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
           ExecStopPost=/bin/sh -c '/usr/bin/docker rm -f velox-worker-{{ inventory_hostname }} >/dev/null 2>&1 || true'
           TimeoutStopSec=35

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // WorkerConfig holds the worker configuration loaded from JSON.
@@ -156,6 +157,25 @@ func (c *WorkerConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// NormalizeWorkerID normalizes IP-derived worker IDs by stripping all leading
+// "host_" prefixes and replacing dots with underscores. This ensures that
+// malformed IDs like host_host_57_129_132_133 or host_57.129.132.133 are
+// treated as the canonical host_57_129_132_133.
+func NormalizeWorkerID(id string) string {
+	s := strings.TrimSpace(id)
+	if !strings.HasPrefix(s, "host_") && !strings.Contains(s, ".") {
+		return id
+	}
+	for strings.HasPrefix(s, "host_") {
+		s = strings.TrimPrefix(s, "host_")
+	}
+	s = strings.ReplaceAll(s, ".", "_")
+	if s != "" {
+		return "host_" + s
+	}
+	return id
 }
 
 // String returns a formatted string representation of the config (for logging).

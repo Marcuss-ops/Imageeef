@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"velox-server/internal/workers"
@@ -22,6 +23,18 @@ func (s *Service) checkWorkerCompatibility(ctx context.Context, worker *workers.
 	}
 	if protocolVersion != workers.DefaultWorkerProtocolVersion {
 		return fmt.Sprintf("protocol_version mismatch: worker=%s master=%s", protocolVersion, workers.DefaultWorkerProtocolVersion)
+	}
+
+	// Bundle hash check (warning only — workers without bundle_hash still get jobs,
+	// but we log the mismatch. Enable hard rejection after all workers are redeployed
+	// with VELOX_BUNDLE_HASH in their env.)
+	if s.masterBundleHash != "" {
+		workerHash := strings.TrimSpace(worker.BundleHash)
+		if workerHash == "" {
+			log.Printf("[COMPAT] WARNING: worker %s missing bundle_hash (master=%s)", worker.WorkerID, s.masterBundleHash)
+		} else if workerHash != s.masterBundleHash {
+			log.Printf("[COMPAT] WARNING: worker %s bundle_hash mismatch worker=%s master=%s", worker.WorkerID, workerHash, s.masterBundleHash)
+		}
 	}
 
 	// Capabilities check
